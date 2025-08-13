@@ -1,22 +1,31 @@
 <?php
+
 /**
  * Plugin Name: IW8 – Rastreador de Cliques WhatsApp
- * Description: Registra cliques em links do WhatsApp (nº 554832389838) e mostra relatório no WP-Admin. Aceita http/https, api.whatsapp.com e wa.me com quaisquer parâmetros.
- * Version: 1.1.7
- * Author: IW8
+ * Description: Registra cliques em links do WhatsApp e mostra relatório no WP-Admin. Aceita http/https, api.whatsapp.com e wa.me com quaisquer parâmetros.
+ * Version: 1.2.0
+ * Author: Adriano Marques
  */
 
-if (!defined('ABSPATH')) { exit; }
+if (!defined('ABSPATH')) {
+    exit;
+}
 
-class IW8_WA_Click_Tracker {
+class IW8_WA_Click_Tracker
+{
     private $table;
-    private $phone = '554832389838'; // DDI+DDD+telefone, sem +
+    private $phone = ''; // agora vem de opção
+    private $option_name = 'iw8_wa_phone';
     private $action = 'iw8_wa_click';
     private $cap_view = 'manage_options';
 
-    public function __construct() {
+    public function __construct()
+    {
         global $wpdb;
         $this->table = $wpdb->prefix . 'wa_clicks';
+
+        // carrega telefone salvo (somente dígitos)
+        $this->phone = preg_replace('/\D+/', '', (string) get_option($this->option_name, ''));
 
         register_activation_hook(__FILE__, [$this, 'activate']);
 
@@ -30,30 +39,31 @@ class IW8_WA_Click_Tracker {
         add_action('wp_ajax_' . $this->action, [$this, 'handle_click']);
         add_action('wp_ajax_nopriv_' . $this->action, [$this, 'handle_click']);
 
-        // Admin
+        // Admin menus e páginas
         add_action('admin_menu', [$this, 'admin_menu']);
         add_action('admin_init', [$this, 'maybe_export_csv']);
 
         // Diagnóstico
         add_action('admin_post_iw8_wa_insert_test', [$this, 'handle_insert_test']);
+
+        // Aviso se telefone não configurado
+        add_action('admin_notices', [$this, 'admin_notice_missing_phone']);
     }
 
-    public function activate() {
+    public function activate()
+    {
         $this->create_table();
     }
 
-    public function ensure_table() {
+    public function ensure_table()
+    {
         global $wpdb;
-        // Usar SHOW TABLES LIKE para maior compatibilidade (alguns hosts restringem information_schema)
-        $exists = $wpdb->get_var(
-            $wpdb->prepare('SHOW TABLES LIKE %s', $this->table)
-        );
-        if ($exists !== $this->table) {
-            $this->create_table();
-        }
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $this->table));
+        if ($exists !== $this->table) $this->create_table();
     }
 
-    private function create_table() {
+    private function create_table()
+    {
         global $wpdb;
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         $charset_collate = $wpdb->get_charset_collate();
@@ -72,10 +82,13 @@ class IW8_WA_Click_Tracker {
         dbDelta($sql);
     }
 
-    public function enqueue_script_footer() {
+    public function enqueue_script_footer()
+    {
         if (is_admin()) return;
+        // se telefone não configurado, não injeta o rastreador
+        if (empty($this->phone)) return;
 
-        wp_register_script('iw8-wa-click-tracker', false, [], '1.1.7', true);
+        wp_register_script('iw8-wa-click-tracker', false, [], '1.2.0', true);
 
         $data = [
             'ajax_url' => admin_url('admin-ajax.php'),
@@ -83,132 +96,112 @@ class IW8_WA_Click_Tracker {
             'action'   => $this->action,
             'phone'    => $this->phone,
         ];
-        // Define dados e força não usar sendBeacon por padrão (alguns servidores retornam 400 para Beacon)
-        // Ativa debug por padrão para identificar problemas
+        // Força fetch por padrão e debug desligado
         wp_add_inline_script(
             'iw8-wa-click-tracker',
-            'window.iw8WaData = ' . wp_json_encode($data) . '; window.iw8WaNoBeacon = true; window.iw8WaDebug = true;',
+            'window.iw8WaData = ' . wp_json_encode($data) . '; window.iw8WaNoBeacon = true; window.iw8WaDebug = false;',
             'before'
         );
 
-        // NOWDOC para não quebrar as barras invertidas da regex
+        // NOWDOC para preservar barras nas regex
         $inline_js = <<<'JS'
 (function(){
   function sendClick(payload){
-  try{
-    var d = window.iw8WaData, u = d.ajax_url;
-    payload.action = d.action; payload.nonce = d.nonce;
+    try{
+      var d = window.iw8WaData, u = d.ajax_url;
+      payload.action = d.action; payload.nonce = d.nonce;
 
-    // Monta urlencoded uma vez
-    var params = new URLSearchParams();
-    for (var k in payload) {
-      if (Object.prototype.hasOwnProperty.call(payload, k)) {
-        params.append(k, String(payload[k] ?? ''));
+      var params = new URLSearchParams();
+      for (var k in payload) {
+        if (Object.prototype.hasOwnProperty.call(payload, k)) {
+          params.append(k, String(payload[k] ?? ''));
+        }
       }
-    }
 
-    // Tenta Beacon com URLENCODED (evita multipart/form-data bloqueado por WAF)
-    var ok = false;
-    if (!window.iw8WaNoBeacon && navigator && typeof navigator.sendBeacon === 'function') {
-      try {
-        var blob = new Blob([params.toString()], {type: 'application/x-www-form-urlencoded; charset=UTF-8'});
-        ok = navigator.sendBeacon(u, blob);
-      } catch(e) { ok = false; }
-    }
-    if (ok) return;
+      var ok = false;
+      if (!window.iw8WaNoBeacon && navigator && typeof navigator.sendBeacon === 'function') {
+        try {
+          var blob = new Blob([params.toString()], {type: 'application/x-www-form-urlencoded; charset=UTF-8'});
+          ok = navigator.sendBeacon(u, blob);
+        } catch(e) { ok = false; }
+      }
+      if (ok) return;
 
-    // Fallback: fetch urlencoded
-    if (window.iw8WaDebug) console.log('[IW8 Track] Enviando via fetch:', u, params.toString());
-    fetch(u, {
-      method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'},
-      body: params.toString(),
-      keepalive:true,
-      cache:'no-store',
-      credentials:'same-origin'
-    }).then(function(response) {
-      if (window.iw8WaDebug) console.log('[IW8 Track] Resposta fetch:', response.status, response.ok);
-      return response.json();
-    }).catch(function(error) {
-      if (window.iw8WaDebug) console.log('[IW8 Track] Erro fetch:', error);
-    });
-  } catch(e){}
-}
+      if (window.iw8WaDebug) console.log('[IW8 Track] Enviando via fetch:', u, params.toString());
+      fetch(u, {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'},
+        body: params.toString(),
+        keepalive:true,
+        cache:'no-store',
+        credentials:'same-origin'
+      }).then(function(response) {
+        if (window.iw8WaDebug) console.log('[IW8 Track] Resposta fetch:', response.status, response.ok);
+        return response.json();
+      }).catch(function(error) {
+        if (window.iw8WaDebug) console.log('[IW8 Track] Erro fetch:', error);
+      });
+    } catch(e){}
+  }
 
   var phone = (window.iw8WaData.phone || '').replace(/[^0-9]/g,'');
-  // Aceita + ou %2B antes do número e também shortlinks de mensagem (sem phone explícito)
   var re = new RegExp(
     '^https?:\\/\\/(?:'
       + 'api\\.whatsapp\\.com\\/(?:send|message)(?:\\?|\\/)?[^#]*\\bphone=(?:%2B|\\+)?' + phone + '\\b'
-      + '|' 
-      + 'wa\\.me\\/(?:%2B|\\+)?' + phone + '(?:[?#\\/]|$)'
-      + '|' 
-      + 'api\\.whatsapp\\.com\\/message\\/[^?#\\/]+'
-      + '|' 
-      + 'wa\\.me\\/message\\/[^?#\\/]+'
-    + ')',
-    'i'
+      + '|wa\\.me\\/(?:%2B|\\+)?' + phone + '(?:[?#\\/]|$)'
+      + '|api\\.whatsapp\\.com\\/message\\/[^?#\\/]+'   // shortlinks de mensagem
+      + '|wa\\.me\\/message\\/[^?#\\/]+'                // shortlinks de mensagem
+    + ')','i'
   );
 
-  // Cache para evitar envios duplicados da mesma URL
   var sentUrls = {};
-  
   function track(url, tag, text){
     if (!url || !re.test(url)) {
-      if (window.iw8WaDebug) console.log('[IW8 Track] URL não corresponde:', url, 'Regex:', re.source);
+      if (window.iw8WaDebug) console.log('[IW8 Track] URL não corresponde:', url);
       return;
     }
-    
-    // Evita envios duplicados da mesma URL em 2 segundos
     var now = Date.now();
     if (sentUrls[url] && (now - sentUrls[url]) < 2000) {
       if (window.iw8WaDebug) console.log('[IW8 Track] URL já enviada recentemente:', url);
       return;
     }
-    
+    sentUrls[url] = now;
+
     var t = (text || '').trim(); if (t.length>500) t = t.slice(0,500);
     if (window.iw8WaDebug) console.log('[IW8 Track] Enviando clique:', {url:url, tag:tag, text:t});
-    
-    sentUrls[url] = now;
     sendClick({ url:url, page_url:location.href, element_tag:tag || 'AUTO', element_text:t });
   }
 
   function maybeFromElement(el){
     if (!el) return;
-    // href direto
     var href = el.getAttribute && el.getAttribute('href') || '';
     if (href && re.test(href)) {
       track(href, (el.tagName||'A').toUpperCase(), el.innerText||el.textContent||'');
       return;
     }
-    // onclick com URL
     var onclick = (el.getAttribute && el.getAttribute('onclick')) || '';
     if (onclick && /whatsapp|wa\\.me|phone\\s*=/.test(onclick)) {
       var m = onclick.match(/https?:\/\/[^'"\s)]+/i);
       if (m && re.test(m[0])) track(m[0], (el.tagName||'EL').toUpperCase(), el.innerText||el.textContent||'');
       return;
     }
-    // data-href/data-url
     var dh = el.getAttribute && (el.getAttribute('data-href') || el.getAttribute('data-url')) || '';
     if (dh && re.test(dh)) {
       track(dh, (el.tagName||'EL').toUpperCase()+'.DATA-HREF', el.innerText||el.textContent||'');
     }
   }
 
-  // Interações do usuário - apenas click para evitar duplicações
   document.addEventListener('click', function(ev){
     var el = ev.target && ev.target.closest ? ev.target.closest('a,button,[role="button"],[onclick],[data-href],[data-url]') : null;
     if (el) maybeFromElement(el);
   }, true);
 
-  // window.open(...)
   var origOpen = window.open;
   window.open = function(url){
     try{ if (typeof url==='string') track(url, 'WINDOW.OPEN', 'open'); }catch(e){}
     return origOpen.apply(this, arguments);
   };
 
-  // location.assign / location.replace
   try{
     var loc = window.location;
     var origAssign = loc.assign ? loc.assign.bind(loc) : null;
@@ -217,7 +210,6 @@ class IW8_WA_Click_Tracker {
     if (origReplace) loc.replace = function(url){ try{ if (typeof url==='string') track(url, 'LOCATION.REPLACE', 'replace'); }catch(e){} return origReplace(url); };
   }catch(e){}
 
-  // Programático: a.click()
   try{
     var A = window.HTMLAnchorElement && window.HTMLAnchorElement.prototype;
     if (A && A.click) {
@@ -238,31 +230,29 @@ JS;
         wp_enqueue_script('iw8-wa-click-tracker');
     }
 
-    public function handle_click() {
-        // Log para debug
-        error_log('[IW8 WA Click] Requisição recebida: ' . print_r($_POST, true));
-        
+    public function handle_click()
+    {
+        // se telefone não configurado, ignora silenciosamente
+        if (empty($this->phone)) {
+            wp_send_json_success(['ignored' => true]);
+        }
+
         check_ajax_referer($this->action . '_nonce', 'nonce');
 
-        $url         = esc_url_raw( wp_unslash( $_POST['url'] ?? '' ) );
+        $url         = esc_url_raw(wp_unslash($_POST['url'] ?? ''));
         $page_url    = isset($_POST['page_url']) ? esc_url_raw(wp_unslash($_POST['page_url'])) : '';
         $element_tag = isset($_POST['element_tag']) ? sanitize_text_field(wp_unslash($_POST['element_tag'])) : '';
-        $element_text= isset($_POST['element_text']) ? wp_strip_all_tags(wp_unslash($_POST['element_text'])) : '';
+        $element_text = isset($_POST['element_text']) ? wp_strip_all_tags(wp_unslash($_POST['element_text'])) : '';
 
         // Regex robusta: aceita + ou %2B antes do número e shortlinks de mensagem
         $p = preg_quote($this->phone, '/');
         $pattern = '/^https?:\/\/(?:'
-                 . 'api\.whatsapp\.com\/(?:send|message)(?:\?|\/)?[^#]*\bphone=(?:%2B|\+)?' . $p . '\b'
-                 . '|'
-                 . 'wa\.me\/(?:%2B|\+)?' . $p . '(?:[?#\/]|$)'
-                 . '|'
-                 . 'api\.whatsapp\.com\/message\/[^?#\/]+'
-                 . '|'
-                 . 'wa\.me\/message\/[^?#\/]+'
-                 . ')/i';
+            . 'api\.whatsapp\.com\/(?:send|message)(?:\?|\/)?[^#]*\bphone=(?:%2B|\+)?' . $p . '\b'
+            . '|wa\.me\/(?:%2B|\+)?' . $p . '(?:[?#\/]|$)'
+            . '|api\.whatsapp\.com\/message\/[^?#\/]+'
+            . '|wa\.me\/message\/[^?#\/]+'
+            . ')/i';
         if (!preg_match($pattern, $url)) {
-            // Evitar erro 400 no console quando a URL não corresponde ao alvo
-            error_log('[IW8 WA Click] URL não corresponde ao padrão: ' . $url . ' | Padrão: ' . $pattern);
             wp_send_json_success(['ignored' => true]);
         }
 
@@ -280,31 +270,24 @@ JS;
             'user_agent'   => $ua,
             'clicked_at'   => $now,
         ];
-        $formats = ['%s','%s','%s','%s','%d','%s','%s'];
+        $formats = ['%s', '%s', '%s', '%s', '%d', '%s', '%s'];
 
         $inserted = $wpdb->insert($this->table, $data, $formats);
-
-        // Se falhar, tenta criar a tabela e inserir novamente
         if ($inserted === false) {
             $this->create_table();
             $inserted = $wpdb->insert($this->table, $data, $formats);
         }
-
         if ($inserted === false) {
-            error_log('[IW8 WA Click] Falha ao inserir no banco: ' . $wpdb->last_error);
-            wp_send_json_error([
-                'message' => 'Falha ao registrar clique no banco.',
-                'error'   => $wpdb->last_error,
-            ], 500);
+            wp_send_json_error(['message' => 'Falha ao registrar clique no banco.'], 500);
         }
 
-        error_log('[IW8 WA Click] Clique registrado com sucesso. ID: ' . $wpdb->insert_id);
         wp_send_json_success(['ok' => true]);
     }
 
     /** -------------------- ADMIN UI -------------------- */
 
-    public function admin_menu() {
+    public function admin_menu()
+    {
         add_menu_page(
             'WA Cliques',
             'WA Cliques',
@@ -323,11 +306,30 @@ JS;
             'iw8-wa-clicks-dbg',
             [$this, 'render_diag_page']
         );
+
+        add_submenu_page(
+            'iw8-wa-clicks',
+            'Configurações',
+            'Configurações',
+            $this->cap_view,
+            'iw8-wa-settings',
+            [$this, 'render_settings_page']
+        );
     }
 
-    private function summarize_counts($where_sql = '', $where_params = []) {
-        global $wpdb;
+    public function admin_notice_missing_phone()
+    {
+        if (!current_user_can($this->cap_view)) return;
+        if (isset($_GET['page']) && $_GET['page'] === 'iw8-wa-settings') return;
+        if (!empty($this->phone)) return;
 
+        $url = esc_url(admin_url('admin.php?page=iw8-wa-settings'));
+        echo '<div class="notice notice-error"><p><strong>IW8 – WA Cliques:</strong> defina o número de telefone alvo nas <a href="' . $url . '">Configurações</a> para habilitar o rastreamento.</p></div>';
+    }
+
+    private function summarize_counts($where_sql = '', $where_params = [])
+    {
+        global $wpdb;
         $total_sql = "SELECT COUNT(*) FROM {$this->table}";
         if ($where_sql) $total_sql .= " WHERE $where_sql";
         $total = (int) $wpdb->get_var($wpdb->prepare($total_sql, $where_params));
@@ -338,10 +340,9 @@ JS;
         return [$total, $d7, $d30];
     }
 
-    public function render_admin_page() {
-        if (!current_user_can($this->cap_view)) {
-            wp_die(__('Você não tem permissão para ver esta página.'));
-        }
+    public function render_admin_page()
+    {
+        if (!current_user_can($this->cap_view)) wp_die(__('Você não tem permissão para ver esta página.'));
 
         global $wpdb;
 
@@ -356,8 +357,10 @@ JS;
         $params = [];
 
         // Mostrar apenas registros deste telefone (aceita + ou %2B)
-        $where[] = "url REGEXP %s";
-        $params[] = 'phone=(' . $this->phone . '|%2B' . $this->phone . '|\\+' . $this->phone . ')|wa\\.me/(' . $this->phone . '|%2B' . $this->phone . '|\\+' . $this->phone . ')';
+        if (!empty($this->phone)) {
+            $where[] = "url REGEXP %s";
+            $params[] = 'phone=(' . $this->phone . '|%2B' . $this->phone . '|\\+' . $this->phone . ')|wa\\.me/(' . $this->phone . '|%2B' . $this->phone . '|\\+' . $this->phone . ')';
+        }
 
         if ($s !== '') {
             $where[] = "page_url LIKE %s";
@@ -372,7 +375,7 @@ JS;
             $params[] = $to;
         }
 
-        $where_sql = implode(' AND ', $where);
+        $where_sql = $where ? implode(' AND ', $where) : '1=1';
 
         $count_sql = "SELECT COUNT(*) FROM {$this->table} WHERE $where_sql";
         $total_items = (int) $wpdb->get_var($wpdb->prepare($count_sql, $params));
@@ -390,9 +393,15 @@ JS;
 
         $nonce = wp_create_nonce('iw8_wa_export');
 
-        ?>
+?>
         <div class="wrap">
             <h1>WA Cliques</h1>
+
+            <?php if (empty($this->phone)): ?>
+                <div class="notice notice-warning">
+                    <p>O telefone alvo ainda não foi configurado. Vá em <a href="<?php echo esc_url(admin_url('admin.php?page=iw8-wa-settings')); ?>">Configurações</a>.</p>
+                </div>
+            <?php endif; ?>
 
             <div style="display:flex; gap:16px; margin:12px 0; flex-wrap:wrap;">
                 <div style="background:#fff;border:1px solid #ddd;padding:12px 16px;border-radius:8px;min-width:220px;">
@@ -422,14 +431,14 @@ JS;
                 <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=iw8-wa-clicks')); ?>" style="margin-left:4px;">Limpar</a>
 
                 <a class="button button-secondary" style="margin-left:8px;"
-                   href="<?php echo esc_url(add_query_arg([
-                        'page' => 'iw8-wa-clicks',
-                        'export' => 'csv',
-                        's' => $s,
-                        'from' => $from,
-                        'to' => $to,
-                        '_wpnonce' => $nonce
-                    ], admin_url('admin.php'))); ?>">
+                    href="<?php echo esc_url(add_query_arg([
+                                'page' => 'iw8-wa-clicks',
+                                'export' => 'csv',
+                                's' => $s,
+                                'from' => $from,
+                                'to' => $to,
+                                '_wpnonce' => $nonce
+                            ], admin_url('admin.php'))); ?>">
                     Exportar CSV
                 </a>
             </form>
@@ -446,26 +455,29 @@ JS;
                     </tr>
                 </thead>
                 <tbody>
-                <?php if (empty($rows)): ?>
-                    <tr><td colspan="6">Nenhum registro encontrado.</td></tr>
-                <?php else: foreach ($rows as $r): ?>
-                    <tr>
-                        <td><?php echo esc_html( date_i18n('Y-m-d H:i', strtotime($r->clicked_at)) ); ?></td>
-                        <td>
-                            <?php if ($r->page_url): ?>
-                                <a href="<?php echo esc_url($r->page_url); ?>" target="_blank" rel="noopener noreferrer">
-                                    <?php echo esc_html(wp_trim_words($r->page_url, 12)); ?>
-                                </a>
-                            <?php endif; ?>
-                        </td>
-                        <td><?php echo esc_html($r->element_tag); ?></td>
-                        <td><?php echo esc_html(wp_trim_words($r->element_text ?: '', 20)); ?></td>
-                        <td><?php echo $r->user_id ? ('#' . (int)$r->user_id) : '-'; ?></td>
-                        <td title="<?php echo esc_attr($r->user_agent); ?>">
-                            <?php echo esc_html(wp_trim_words($r->user_agent ?: '', 8)); ?>
-                        </td>
-                    </tr>
-                <?php endforeach; endif; ?>
+                    <?php if (empty($rows)): ?>
+                        <tr>
+                            <td colspan="6">Nenhum registro encontrado.</td>
+                        </tr>
+                        <?php else: foreach ($rows as $r): ?>
+                            <tr>
+                                <td><?php echo esc_html(date_i18n('Y-m-d H:i', strtotime($r->clicked_at))); ?></td>
+                                <td>
+                                    <?php if ($r->page_url): ?>
+                                        <a href="<?php echo esc_url($r->page_url); ?>" target="_blank" rel="noopener noreferrer">
+                                            <?php echo esc_html(wp_trim_words($r->page_url, 12)); ?>
+                                        </a>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php echo esc_html($r->element_tag); ?></td>
+                                <td><?php echo esc_html(wp_trim_words($r->element_text ?: '', 20)); ?></td>
+                                <td><?php echo $r->user_id ? ('#' . (int)$r->user_id) : '-'; ?></td>
+                                <td title="<?php echo esc_attr($r->user_agent); ?>">
+                                    <?php echo esc_html(wp_trim_words($r->user_agent ?: '', 8)); ?>
+                                </td>
+                            </tr>
+                    <?php endforeach;
+                    endif; ?>
                 </tbody>
             </table>
 
@@ -491,10 +503,11 @@ JS;
                 </div>
             <?php endif; ?>
         </div>
-        <?php
+<?php
     }
 
-    public function render_diag_page() {
+    public function render_diag_page()
+    {
         if (!current_user_can($this->cap_view)) wp_die('Sem permissão.');
         global $wpdb;
 
@@ -532,33 +545,36 @@ JS;
         echo '</div>';
     }
 
-    public function handle_insert_test() {
+    public function handle_insert_test()
+    {
         if (!current_user_can($this->cap_view)) wp_die('Sem permissão.');
         check_admin_referer('iw8_wa_insert_test');
 
+        // se telefone não configurado, usa home/ignora, só para testar escrita
+        $phone = !empty($this->phone) ? $this->phone : '0000000000';
+
         global $wpdb;
         $wpdb->insert($this->table, [
-            'url'          => 'https://api.whatsapp.com/send?1=pt_BR&phone=' . $this->phone . '&text=teste',
+            'url'          => 'https://api.whatsapp.com/send?1=pt_BR&phone=' . $phone . '&text=teste',
             'page_url'     => home_url('/'),
             'element_tag'  => 'ADMIN',
             'element_text' => 'Inserção de teste',
             'user_id'      => get_current_user_id() ?: null,
             'user_agent'   => 'WP-Admin/Diag',
             'clicked_at'   => current_time('mysql'),
-        ], ['%s','%s','%s','%s','%d','%s','%s']);
+        ], ['%s', '%s', '%s', '%s', '%d', '%s', '%s']);
 
-        wp_safe_redirect( admin_url('admin.php?page=iw8-wa-clicks-dbg') );
+        wp_safe_redirect(admin_url('admin.php?page=iw8-wa-clicks-dbg'));
         exit;
     }
 
-    public function maybe_export_csv() {
+    public function maybe_export_csv()
+    {
         if (!is_admin()) return;
         if (!isset($_GET['page']) || $_GET['page'] !== 'iw8-wa-clicks') return;
         if (!isset($_GET['export']) || $_GET['export'] !== 'csv') return;
 
-        if (!current_user_can($this->cap_view)) {
-            wp_die(__('Sem permissão.'));
-        }
+        if (!current_user_can($this->cap_view)) wp_die(__('Sem permissão.'));
         check_admin_referer('iw8_wa_export');
 
         global $wpdb;
@@ -567,8 +583,13 @@ JS;
         $from = isset($_GET['from']) ? sanitize_text_field(wp_unslash($_GET['from'])) : '';
         $to   = isset($_GET['to']) ? sanitize_text_field(wp_unslash($_GET['to'])) : '';
 
-        $where = ["url REGEXP %s"];
-        $params = ['phone=(' . $this->phone . '|%2B' . $this->phone . '|\\+' . $this->phone . ')|wa\\.me/(' . $this->phone . '|%2B' . $this->phone . '|\\+' . $this->phone . ')'];
+        $where = [];
+        $params = [];
+
+        if (!empty($this->phone)) {
+            $where[] = "url REGEXP %s";
+            $params[] = 'phone=(' . $this->phone . '|%2B' . $this->phone . '|\\+' . $this->phone . ')|wa\\.me/(' . $this->phone . '|%2B' . $this->phone . '|\\+' . $this->phone . ')';
+        }
 
         if ($s !== '') {
             $where[] = "page_url LIKE %s";
@@ -583,7 +604,8 @@ JS;
             $params[] = $to;
         }
 
-        $where_sql = implode(' AND ', $where);
+        $where_sql = $where ? implode(' AND ', $where) : '1=1';
+
         $sql = "SELECT id, clicked_at, url, page_url, element_tag, element_text, user_id, user_agent
                 FROM {$this->table}
                 WHERE $where_sql
@@ -595,8 +617,8 @@ JS;
         header('Content-Disposition: attachment; filename="wa-cliques-' . date('Ymd-His') . '.csv"');
 
         $out = fopen('php://output', 'w');
-        fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM para Excel
-        fputcsv($out, ['id','clicked_at','url','page_url','element_tag','element_text','user_id','user_agent']);
+        fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+        fputcsv($out, ['id', 'clicked_at', 'url', 'page_url', 'element_tag', 'element_text', 'user_id', 'user_agent']);
 
         foreach ($rows as $r) {
             fputcsv($out, [
@@ -613,9 +635,49 @@ JS;
         fclose($out);
         exit;
     }
-} // <-- fecha a classe certinho
 
-// Instancia o plugin
+    /** -------------------- SETTINGS -------------------- */
+    public function render_settings_page()
+    {
+        if (!current_user_can($this->cap_view)) wp_die('Sem permissão.');
+
+        // processa POST
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['iw8_wa_phone'])) {
+            check_admin_referer('iw8_wa_save_settings');
+
+            $digits = preg_replace('/\D+/', '', (string) wp_unslash($_POST['iw8_wa_phone']));
+            if (strlen($digits) < 10 || strlen($digits) > 15) {
+                add_settings_error('iw8_wa_settings', 'iw8_wa_phone_invalid', 'Número inválido. Use somente dígitos (10–15). Ex.: 554832389838', 'error');
+            } else {
+                update_option($this->option_name, $digits, false);
+                $this->phone = $digits;
+                add_settings_error('iw8_wa_settings', 'iw8_wa_phone_saved', 'Configurações salvas.', 'updated');
+            }
+        }
+
+        echo '<div class="wrap"><h1>Configurações — WA Cliques</h1>';
+        settings_errors('iw8_wa_settings');
+
+        echo '<form method="post" action="">';
+        wp_nonce_field('iw8_wa_save_settings');
+
+        echo '<table class="form-table" role="presentation"><tbody>';
+        echo '<tr>';
+        echo '<th scope="row"><label for="iw8_wa_phone">Telefone (DDI+DDD+Número)</label></th>';
+        echo '<td>';
+        echo '<input name="iw8_wa_phone" id="iw8_wa_phone" type="text" class="regular-text" ';
+        echo 'placeholder="554832389838" pattern="\\d{10,15}" ';
+        echo 'value="' . esc_attr($this->phone) . '"> ';
+        echo '<p class="description">Somente dígitos, sem sinais. Exemplos: 5511999999999, 554832389838.</p>';
+        echo '</td>';
+        echo '</tr>';
+        echo '</tbody></table>';
+
+        submit_button('Salvar configurações');
+        echo '</form>';
+
+        echo '</div>';
+    }
+}
+
 new IW8_WA_Click_Tracker();
-
-
