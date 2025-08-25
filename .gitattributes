@@ -1,0 +1,58 @@
+# Arquivos de desenvolvimento - não incluir na distribuição
+.github/ export-ignore
+tests/ export-ignore
+docs/dev/ export-ignore
+*.md.bak export-ignore
+
+# Arquivos de configuração de desenvolvimento
+.gitignore export-ignore
+.gitattributes export-ignore
+composer.json export-ignore
+composer.lock export-ignore
+package.json export-ignore
+package-lock.json export-ignore
+webpack.config.js export-ignore
+gulpfile.js export-ignore
+
+# Arquivos de IDE
+.idea/ export-ignore
+.vscode/ export-ignore
+*.swp export-ignore
+*.swo export-ignore
+
+# Arquivos temporários
+temp/ export-ignore
+tmp/ export-ignore
+*.tmp export-ignore
+*.cache export-ignore
+
+# Logs
+*.log export-ignore
+
+# Arquivos de backup
+*.bak export-ignore
+*.backup export-ignore
+
+# Manter arquivos essenciais
+*.php text
+*.js text
+*.css text
+*.md text
+*.txt text
+*.pot text
+*.po text
+*.mo binary
+
+# Arquivos de imagem
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg text
+*.ico binary
+
+# Arquivos de fonte
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
