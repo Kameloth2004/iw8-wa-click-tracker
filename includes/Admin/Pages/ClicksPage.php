@@ -62,10 +62,53 @@ class ClicksPage
         $clicks = $this->repository->list($filters, $pagination);
         $totals = $this->repository->countTotals($filters);
         $totals = wp_parse_args((array) $totals, ['total' => 0, 'last7' => 0, 'last30' => 0]);
-
 ?>
         <div class="wrap">
             <h1><?php _e('Relatórios - WA Cliques', 'iw8-wa-click-tracker'); ?></h1>
+
+            <!-- Formulário de Exportação CSV (POST para admin-post.php) -->
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:16px 0;">
+                <input type="hidden" name="action" value="iw8_wa_export_csv" />
+                <?php wp_nonce_field('iw8_wa_export'); ?>
+
+                <fieldset style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+                    <label>
+                        <span><?php esc_html_e('De', 'iw8-wa-click-tracker'); ?></span><br>
+                        <input type="date" name="date_from">
+                    </label>
+                    <label>
+                        <span><?php esc_html_e('Até', 'iw8-wa-click-tracker'); ?></span><br>
+                        <input type="date" name="date_to">
+                    </label>
+                    <label>
+                        <span><?php esc_html_e('Página (prefixo)', 'iw8-wa-click-tracker'); ?></span><br>
+                        <input type="url" name="page_url" placeholder="https://seusite.com/">
+                    </label>
+                    <label>
+                        <span><?php esc_html_e('Tag do elemento', 'iw8-wa-click-tracker'); ?></span><br>
+                        <input type="text" name="element_tag" placeholder="a, button, etc.">
+                    </label>
+                    <label>
+                        <span><?php esc_html_e('User ID', 'iw8-wa-click-tracker'); ?></span><br>
+                        <input type="number" name="user_id" min="1">
+                    </label>
+                    <label>
+                        <span><?php esc_html_e('Limite', 'iw8-wa-click-tracker'); ?></span><br>
+                        <input type="number" name="limit" min="1" max="5000" value="1000">
+                    </label>
+                    <label>
+                        <span><?php esc_html_e('Ordem', 'iw8-wa-click-tracker'); ?></span><br>
+                        <select name="order">
+                            <option value="desc" selected><?php esc_html_e('Mais recentes primeiro', 'iw8-wa-click-tracker'); ?></option>
+                            <option value="asc"><?php esc_html_e('Mais antigas primeiro', 'iw8-wa-click-tracker'); ?></option>
+                        </select>
+                    </label>
+
+                    <button type="submit" class="button button-primary">
+                        <?php esc_html_e('Exportar CSV', 'iw8-wa-click-tracker'); ?>
+                    </button>
+                </fieldset>
+            </form>
 
             <?php $this->render_metrics($totals); ?>
 
@@ -159,7 +202,7 @@ class ClicksPage
     }
 
     /**
-     * Renderizar filtros
+     * Renderizar filtros (para a tabela, via GET)
      *
      * @param array $filters
      * @return void
@@ -195,24 +238,10 @@ class ClicksPage
                         class="button button-primary"
                         value="<?php _e('Filtrar', 'iw8-wa-click-tracker'); ?>" />
 
-                    <a href="<?php echo admin_url('admin.php?page=iw8-wa-clicks'); ?>"
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=iw8-wa-clicks')); ?>"
                         class="button">
                         <?php _e('Limpar', 'iw8-wa-click-tracker'); ?>
                     </a>
-
-                    <?php if (\IW8\WaClickTracker\Utils\Helpers::isPhoneConfigured()): ?>
-                        <a href="<?php echo $this->get_export_url($filters); ?>"
-                            class="button button-secondary">
-                            <?php _e('Exportar CSV', 'iw8-wa-click-tracker'); ?>
-                        </a>
-                    <?php else: ?>
-                        <button type="button"
-                            class="button button-secondary"
-                            disabled
-                            title="<?php _e('Configure o telefone em Configurações', 'iw8-wa-click-tracker'); ?>">
-                            <?php _e('Exportar CSV', 'iw8-wa-click-tracker'); ?>
-                        </button>
-                    <?php endif; ?>
                 </div>
             </form>
         </div>
@@ -300,6 +329,7 @@ class ClicksPage
                                     #<?php echo esc_html($click->user_id); ?>
                                 <?php else: ?>
                                     -
+                                    // -->
                                 <?php endif; ?>
                             </td>
                             <td title="<?php echo esc_attr($click->user_agent ?: ''); ?>">
@@ -333,13 +363,13 @@ class ClicksPage
 
         echo '<div class="tablenav-pages">';
         echo paginate_links([
-            'base' => add_query_arg('paged', '%#%'),
-            'format' => '',
+            'base'      => add_query_arg('paged', '%#%'),
+            'format'    => '',
             'prev_text' => __('&laquo;'),
             'next_text' => __('&raquo;'),
-            'total' => $total_pages,
-            'current' => $current_page,
-            'type' => 'plain'
+            'total'     => $total_pages,
+            'current'   => $current_page,
+            'type'      => 'plain'
         ]);
         echo '</div>';
     }
@@ -389,37 +419,9 @@ class ClicksPage
         $offset = ($paged - 1) * $per_page;
 
         return [
-            'paged' => $paged,
+            'paged'    => $paged,
             'per_page' => $per_page,
-            'offset' => $offset
+            'offset'   => $offset
         ];
-    }
-
-    /**
-     * Gerar URL de exportação CSV com filtros e nonce
-     *
-     * @param array $filters Filtros aplicados
-     * @return string URL de exportação
-     */
-    private function get_export_url($filters)
-    {
-        $export_url = add_query_arg([
-            'page' => 'iw8-wa-clicks',
-            'export' => 'csv',
-            '_wpnonce' => wp_create_nonce('iw8_wa_export')
-        ], admin_url('admin.php'));
-
-        // Adicionar filtros se existirem
-        if (!empty($filters['s'])) {
-            $export_url = add_query_arg('s', urlencode($filters['s']), $export_url);
-        }
-        if (!empty($filters['from'])) {
-            $export_url = add_query_arg('from', $filters['from'], $export_url);
-        }
-        if (!empty($filters['to'])) {
-            $export_url = add_query_arg('to', $filters['to'], $export_url);
-        }
-
-        return $export_url;
     }
 }

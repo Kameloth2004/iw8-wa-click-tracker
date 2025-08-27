@@ -1,0 +1,9 @@
+{
+    "require-dev": {
+        "php-stubs/wordpress-stubs": "^6.6",
+        "php-stubs/wordpress-tests-stubs": "^6.6"
+    },
+    "require": {
+        "yahnis-elsts/plugin-update-checker": "^5.0"
+    }
+}
