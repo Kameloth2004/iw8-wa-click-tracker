@@ -1,212 +1,133 @@
 <?php
-/**
- * Classe para exportação de dados em CSV
- *
- * @package IW8_WaClickTracker\Export
- * @version 1.3.0
- */
+
+declare(strict_types=1);
 
 namespace IW8\WaClickTracker\Export;
 
-// Prevenir acesso direto
 if (!defined('ABSPATH')) {
     exit;
 }
 
-/**
- * Classe CsvExporter
- */
-class CsvExporter
+final class CsvExporter
 {
     /**
-     * Instância do repositório de cliques
-     *
-     * @var \IW8\WaClickTracker\Database\ClickRepository
+     * Emite o CSV diretamente no output com headers de download.
+     * Espera filtros (já saneados pelo handler) nas chaves:
+     *  - date_from (YYYY-MM-DD)
+     *  - date_to   (YYYY-MM-DD)
+     *  - page_url  (prefix match)
+     *  - element_tag
+     *  - user_id
+     *  - (opcionais) limit, order
      */
-    private $repository;
-
-    /**
-     * Construtor da classe
-     */
-    public function __construct()
+    public static function outputCsv(array $filters): void
     {
-        $this->repository = new \IW8\WaClickTracker\Database\ClickRepository();
-    }
+        \nocache_headers();
 
-    /**
-     * Exportar dados em CSV
-     *
-     * @param array $filter Filtros para aplicar na exportação
-     * @return void
-     */
-    public function outputCsv($filter)
-    {
-        // Verificar permissões
-        if (!current_user_can('manage_options')) {
-            wp_die(__('Você não tem permissão para exportar dados.', 'iw8-wa-click-tracker'));
-        }
-
-        try {
-            // Verificar se telefone está configurado
-            if (!\IW8\WaClickTracker\Utils\Helpers::isPhoneConfigured()) {
-                wp_die(__('Não é possível exportar: telefone não configurado.', 'iw8-wa-click-tracker'));
-            }
-
-            // Gerar nome do arquivo
-            $filename = 'wa-cliques-' . date('Ymd-His') . '.csv';
-
-            // Configurar headers HTTP
-            $this->setHeaders($filename);
-
-            // Abrir output stream
-            $output = fopen('php://output', 'w');
-            if ($output === false) {
-                throw new \Exception('Não foi possível abrir stream de saída');
-            }
-
-            // Escrever BOM UTF-8
-            fwrite($output, "\xEF\xBB\xBF");
-
-            // Escrever cabeçalho
-            $headers = [
-                'id',
-                'clicked_at',
-                'url',
-                'page_url',
-                'element_tag',
-                'element_text',
-                'user_id',
-                'user_agent'
-            ];
-            fputcsv($output, $headers);
-
-            // Streaming em lotes
-            $batch = 500;
-            $offset = 0;
-            $total_exported = 0;
-
-            do {
-                // Obter lote de dados
-                $clicks = $this->repository->list($filter, [
-                    'per_page' => $batch,
-                    'offset' => $offset
-                ]);
-
-                if (empty($clicks)) {
-                    break;
-                }
-
-                // Processar cada clique
-                foreach ($clicks as $click) {
-                    $row = [
-                        $click->id,
-                        $click->clicked_at,
-                        $click->url,
-                        $click->page_url ?: '',
-                        $click->element_tag ?: '',
-                        $click->element_text ?: '',
-                        $click->user_id ?: '',
-                        $click->user_agent ?: ''
-                    ];
-
-                    fputcsv($output, $row);
-                    $total_exported++;
-                }
-
-                // Incrementar offset
-                $offset += $batch;
-
-                // Flush para evitar timeout
-                if (function_exists('fflush')) {
-                    fflush($output);
-                }
-
-            } while (count($clicks) === $batch);
-
-            // Fechar stream
-            fclose($output);
-
-            // Log da exportação (opcional)
-            if (function_exists('error_log')) {
-                error_log("IW8 WaClickTracker: CSV exportado com sucesso. Total: {$total_exported} registros");
-            }
-
-            // Finalizar script
-            exit;
-
-        } catch (\Exception $e) {
-            // Log do erro
-            if (function_exists('error_log')) {
-                error_log('IW8 WaClickTracker CSV Export Error: ' . $e->getMessage());
-            }
-
-            // Retornar erro HTTP 500
-            http_response_code(500);
-            wp_die(__('Erro ao exportar dados. Tente novamente.', 'iw8-wa-click-tracker'));
-        }
-    }
-
-    /**
-     * Configurar headers HTTP para download do CSV
-     *
-     * @param string $filename Nome do arquivo
-     * @return void
-     */
-    private function setHeaders($filename)
-    {
-        // Prevenir qualquer saída antes dos headers
-        if (headers_sent()) {
-            throw new \Exception('Headers já foram enviados');
-        }
-
-        // Headers para download
+        $filename = 'iw8-wa-clicks-' . gmdate('Ymd-His') . '.csv';
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('X-Content-Type-Options: nosniff');
         header('Pragma: no-cache');
         header('Expires: 0');
 
-        // Prevenir cache do navegador
-        nocache_headers();
-    }
+        // BOM para Excel PT-BR reconhecer UTF-8
+        echo "\xEF\xBB\xBF";
 
-    /**
-     * Validar e preparar filtros para exportação
-     *
-     * @param array $raw_filters Filtros brutos da requisição
-     * @return array Filtros validados
-     */
-    public function prepareFilters($raw_filters)
-    {
-        $filters = [];
+        global $wpdb;
+        /** @var \wpdb $wpdb */
+        $table = $wpdb->prefix . 'wa_clicks';
 
-        // Busca
-        if (!empty($raw_filters['s'])) {
-            $filters['s'] = sanitize_text_field($raw_filters['s']);
+        // Colunas exportadas (ordem fixa)
+        $columns = [
+            'id',
+            'url',
+            'page_url',
+            'element_tag',
+            'element_text',
+            'user_agent',
+            'clicked_at',
+        ];
+
+        // Cabeçalhos do CSV (altere rótulos se quiser)
+        $headers = [
+            'ID',
+            'URL',
+            'Página',
+            'Elemento (tag)',
+            'Elemento (texto)',
+            'User-Agent',
+            'Data/Hora',
+        ];
+
+        // WHERE + parâmetros
+        $where  = 'WHERE 1=1';
+        $params = [];
+
+        $dateFrom = isset($filters['date_from']) ? (string)$filters['date_from'] : '';
+        $dateTo   = isset($filters['date_to'])   ? (string)$filters['date_to']   : '';
+        $pageUrl  = isset($filters['page_url'])  ? (string)$filters['page_url']  : '';
+        $tag      = isset($filters['element_tag']) ? (string)$filters['element_tag'] : '';
+        $userId   = isset($filters['user_id'])   ? (int)$filters['user_id']      : 0;
+
+        if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+            $where   .= ' AND clicked_at >= %s';
+            $params[] = $dateFrom . ' 00:00:00';
+        }
+        if ($dateTo !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            $where   .= ' AND clicked_at <= %s';
+            $params[] = $dateTo . ' 23:59:59';
+        }
+        if ($pageUrl !== '') {
+            $where   .= ' AND page_url LIKE %s';
+            $params[] = $wpdb->esc_like($pageUrl) . '%';
+        }
+        if ($tag !== '') {
+            $where   .= ' AND element_tag = %s';
+            $params[] = $tag;
+        }
+        if ($userId > 0) {
+            $where   .= ' AND user_id = %d';
+            $params[] = $userId;
         }
 
-        // Data de início
-        if (!empty($raw_filters['from'])) {
-            $date = sanitize_text_field($raw_filters['from']);
-            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-                $filters['from'] = $date;
+        $limit = isset($filters['limit']) ? (int)$filters['limit'] : 1000;
+        if ($limit < 1) {
+            $limit = 1;
+        }
+        if ($limit > 5000) {
+            $limit = 5000;
+        }
+
+        $order = (isset($filters['order']) && strtolower((string)$filters['order']) === 'asc') ? 'ASC' : 'DESC';
+
+        $select = implode(',', array_map(static fn(string $c) => "`$c`", $columns));
+        $sql    = "SELECT {$select} FROM `{$table}` {$where} ORDER BY clicked_at {$order} LIMIT %d";
+        $params[] = $limit;
+
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+
+        $out = fopen('php://output', 'w');
+        if ($out === false) {
+            \wp_die(\esc_html__('Falha ao abrir saída do CSV.', 'iw8-wa-click-tracker'), '', ['response' => 500]);
+        }
+
+        // Delimitador ';' para compatibilidade com Excel PT-BR
+        $delimiter = ';';
+
+        // Linha de cabeçalho
+        fputcsv($out, $headers, $delimiter);
+
+        // Linhas
+        foreach ($rows as $row) {
+            $line = [];
+            foreach ($columns as $col) {
+                $line[] = isset($row[$col]) ? (string)$row[$col] : '';
             }
+            fputcsv($out, $line, $delimiter);
         }
 
-        // Data de fim
-        if (!empty($raw_filters['to'])) {
-            $date = sanitize_text_field($raw_filters['to']);
-            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-                $filters['to'] = $date;
-            }
-        }
-
-        // Regex de URL baseado no telefone configurado
-        $phone = \IW8\WaClickTracker\Utils\Helpers::getConfiguredPhone();
-        if ($phone) {
-            $filters['url_regexp'] = \IW8\WaClickTracker\Utils\Helpers::generateUrlRegexp($phone);
-        }
-
-        return $filters;
+        fclose($out);
+        exit;
     }
 }
