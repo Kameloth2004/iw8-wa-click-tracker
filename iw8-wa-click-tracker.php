@@ -28,6 +28,30 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// === Auto-update via GitHub (PUC v5) – Bootstrap ===
+
+// 2.1) Carregar autoloader do Composer
+$iw8_wa_click_tracker_autoload = __DIR__ . '/vendor/autoload.php';
+if (file_exists($iw8_wa_click_tracker_autoload)) {
+    require_once $iw8_wa_click_tracker_autoload;
+}
+
+// 2.2) Registrar o update checker
+if (class_exists(\YahnisElsts\PluginUpdateChecker\v5\PucFactory::class)) {
+    $iw8_wa_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+        'https://github.com/kameloth2004/iw8-wa-click-tracker',
+        __FILE__,
+        'iw8-wa-click-tracker'
+    );
+
+    $iw8_wa_update_checker->setBranch('main');
+
+    $api = $iw8_wa_update_checker->getVcsApi();
+    if ($api !== null) {
+        $api->enableReleaseAssets();
+    }
+}
+
 // Definir constantes do plugin
 define('IW8_WA_CLICK_TRACKER_VERSION', '1.3.1');
 define('IW8_WA_CLICK_TRACKER_PLUGIN_SLUG', 'iw8-wa-click-tracker');
