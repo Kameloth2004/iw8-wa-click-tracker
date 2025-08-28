@@ -24,33 +24,26 @@ final class ApiRegistrar
      */
     public function register(): void
     {
+        // Controller do /ping
+        $ping = new PingController(
+            new \IW8\WA\Services\TimeProvider(),
+            new \IW8\WA\Services\LimitsProvider()
+        );
+
         // /wp-json/iw8-wa/v1/ping
         register_rest_route($this->namespace, '/ping', [
             'methods'  => 'GET',
-            'callback' => [$this, 'notImplemented'],
-            'permission_callback' => '__return_true', // Será substituído por autenticação no passo seguinte
+            'callback' => [$ping, 'handle'],
+            'permission_callback' => '__return_true', // auth/https entram na próxima etapa
             'args' => [],
         ]);
 
-        // /wp-json/iw8-wa/v1/clicks
+        // /wp-json/iw8-wa/v1/clicks (ainda placeholder 501)
         register_rest_route($this->namespace, '/clicks', [
             'methods'  => 'GET',
             'callback' => [$this, 'notImplemented'],
-            'permission_callback' => '__return_true', // Será substituído por autenticação no passo seguinte
+            'permission_callback' => '__return_true',
             'args' => [],
         ]);
-    }
-
-    /**
-     * Placeholder até implementarmos os Controllers e a segurança.
-     * Retorna 501 para evitar comportamento silencioso.
-     */
-    public function notImplemented(\WP_REST_Request $request)
-    {
-        return new \WP_Error(
-            'not_implemented',
-            'Endpoint definido, porém ainda não implementado nesta versão de desenvolvimento.',
-            ['status' => 501]
-        );
     }
 }
