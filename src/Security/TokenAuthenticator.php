@@ -37,13 +37,49 @@ final class TokenAuthenticator
     /** Extrai o token do header X-IW8-Token (case-insensitive). */
     public function extractToken(\WP_REST_Request $request): ?string
     {
+        // 1) Forma oficial do WP REST (normaliza para lowercase)
+        $h = $request->get_header('x-iw8-token');
+        if (is_string($h) && trim($h) !== '') {
+            return trim($h);
+        }
+
+        // 2) Array de headers do WP REST (chaves normalmente em lowercase)
         $headers = $request->get_headers();
-        foreach (['x-iw8-token', 'X-IW8-Token'] as $k) {
-            if (isset($headers[$k]) && is_array($headers[$k]) && isset($headers[$k][0])) {
-                $t = trim((string)$headers[$k][0]);
-                return $t !== '' ? $t : null;
+        foreach (['x-iw8-token', 'x_iw8_token'] as $k) {
+            if (isset($headers[$k])) {
+                $val = is_array($headers[$k]) ? ($headers[$k][0] ?? '') : $headers[$k];
+                $val = is_string($val) ? trim($val) : '';
+                if ($val !== '') {
+                    return $val;
+                }
             }
         }
+
+        // 3) Fallback direto via $_SERVER (nginx/fastcgi, apache)
+        foreach (['HTTP_X_IW8_TOKEN', 'X_IW8_TOKEN'] as $k) {
+            if (isset($_SERVER[$k]) && is_string($_SERVER[$k]) && trim($_SERVER[$k]) !== '') {
+                return trim($_SERVER[$k]);
+            }
+        }
+
+        // 4) getallheaders / apache_request_headers (variações de ambiente)
+        if (function_exists('getallheaders')) {
+            $all = getallheaders();
+            foreach ($all as $name => $val) {
+                if (is_string($name) && strtolower($name) === 'x-iw8-token' && is_string($val) && trim($val) !== '') {
+                    return trim($val);
+                }
+            }
+        }
+        if (function_exists('apache_request_headers')) {
+            $all = apache_request_headers();
+            foreach ($all as $name => $val) {
+                if (is_string($name) && strtolower($name) === 'x-iw8-token' && is_string($val) && trim($val) !== '') {
+                    return trim($val);
+                }
+            }
+        }
+
         return null;
     }
 
