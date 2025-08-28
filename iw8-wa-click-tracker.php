@@ -28,6 +28,40 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// === Composer autoload (precisa vir ANTES de qualquer uso de classes do src/) ===
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+} else {
+    // Log simples para diagnosticar no ambiente Local (Logs > PHP)
+    if (function_exists('error_log')) {
+        error_log('IW8_WA: vendor/autoload.php não encontrado');
+    }
+}
+
+// === Carregamento direto das classes REST (bypass do Composer no dev local) ===
+require_once __DIR__ . '/src/Services/TimeProvider.php';
+require_once __DIR__ . '/src/Services/LimitsProvider.php';
+require_once __DIR__ . '/src/Rest/PingController.php';
+require_once __DIR__ . '/src/Rest/ApiRegistrar.php';
+
+// === Registra as rotas REST no init do WP REST ===
+add_action('rest_api_init', function () {
+    // Se por algum motivo o autoload não carregou, registramos o log e abortamos
+    if (!class_exists(\IW8\WA\Rest\ApiRegistrar::class)) {
+        if (function_exists('error_log')) {
+            error_log('IW8_WA REST: ApiRegistrar não encontrado no autoload');
+        }
+        return;
+    }
+
+    $registrar = new \IW8\WA\Rest\ApiRegistrar();
+    $registrar->register();
+
+    if (function_exists('error_log')) {
+        error_log('IW8_WA REST: rotas registradas (iw8-wa/v1)');
+    }
+});
+
 // === Auto-update via GitHub (PUC v5) – Bootstrap ===
 
 // 2.1) Carregar autoloader do Composer
