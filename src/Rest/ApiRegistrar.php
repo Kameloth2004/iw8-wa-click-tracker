@@ -27,7 +27,7 @@ final class ApiRegistrar
         $enforcer = new \IW8\WA\Security\HttpsEnforcer();
         $auth     = new \IW8\WA\Security\TokenAuthenticator();
 
-        // Controller do /ping
+        // /ping
         $ping = new PingController(
             new \IW8\WA\Services\TimeProvider(),
             new \IW8\WA\Services\LimitsProvider(),
@@ -43,7 +43,6 @@ final class ApiRegistrar
             return is_wp_error($ok) ? $ok : true;
         };
 
-        // /wp-json/iw8-wa/v1/ping
         register_rest_route($this->namespace, '/ping', [
             'methods'  => 'GET',
             'callback' => [$ping, 'handle'],
@@ -51,10 +50,15 @@ final class ApiRegistrar
             'args' => [],
         ]);
 
-        // /wp-json/iw8-wa/v1/clicks (ainda placeholder 501, mas já protegido)
+        // /clicks (agora com validação e resposta vazia)
+        $limits     = new \IW8\WA\Services\LimitsProvider();
+        $validator  = new \IW8\WA\Validation\RequestValidator($limits);
+        $cursor     = new \IW8\WA\Validation\CursorCodec();
+        $clicks     = new ClicksController($limits, $validator, $cursor);
+
         register_rest_route($this->namespace, '/clicks', [
             'methods'  => 'GET',
-            'callback' => [$this, 'notImplemented'],
+            'callback' => [$clicks, 'handle'],
             'permission_callback' => $permission,
             'args' => [],
         ]);

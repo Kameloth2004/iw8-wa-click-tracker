@@ -46,6 +46,11 @@ require_once __DIR__ . '/src/Services/TimeProvider.php';
 require_once __DIR__ . '/src/Services/LimitsProvider.php';
 require_once __DIR__ . '/src/Rest/PingController.php';
 require_once __DIR__ . '/src/Rest/ApiRegistrar.php';
+require_once __DIR__ . '/src/Http/ErrorFactory.php';
+require_once __DIR__ . '/src/Http/JsonResponse.php';
+require_once __DIR__ . '/src/Validation/CursorCodec.php';
+require_once __DIR__ . '/src/Validation/RequestValidator.php';
+require_once __DIR__ . '/src/Rest/ClicksController.php';
 
 
 // === Registra as rotas REST no init do WP REST ===
