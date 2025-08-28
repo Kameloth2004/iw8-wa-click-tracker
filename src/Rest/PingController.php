@@ -6,6 +6,7 @@ namespace IW8\WA\Rest;
 
 use IW8\WA\Services\TimeProvider;
 use IW8\WA\Services\LimitsProvider;
+use IW8\WA\Security\TokenAuthenticator;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -15,19 +16,22 @@ final class PingController
 {
     private TimeProvider $time;
     private LimitsProvider $limits;
+    private TokenAuthenticator $auth;
 
-    public function __construct(TimeProvider $time, LimitsProvider $limits)
+    public function __construct(TimeProvider $time, LimitsProvider $limits, TokenAuthenticator $auth)
     {
         $this->time   = $time;
         $this->limits = $limits;
+        $this->auth   = $auth;
     }
 
-    /** Handler do GET /ping (sem auth/https enforcement ainda) */
+    /** Handler do GET /ping (agora com token_last4 preenchido) */
     public function handle(\WP_REST_Request $request)
     {
         $home = get_home_url();
         $domain = wp_parse_url($home, PHP_URL_HOST);
 
+        $token = $this->auth->extractToken($request);
         $payload = [
             'service' => 'iw8-wa-click-tracker',
             'version' => defined('IW8_WA_CLICK_TRACKER_VERSION') ? IW8_WA_CLICK_TRACKER_VERSION : 'unknown',
@@ -37,9 +41,8 @@ final class PingController
                 'wp_home' => $home,
             ],
             'auth' => [
-                // Será populado de fato quando adicionarmos o TokenAuthenticator.
                 'token_scope' => 'domain',
-                'token_last4' => null,
+                'token_last4' => $this->auth->last4($token),
             ],
             'limits' => [
                 'rate_per_minute'  => $this->limits->getRatePerMinute(),

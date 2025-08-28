@@ -24,25 +24,38 @@ final class ApiRegistrar
      */
     public function register(): void
     {
+        $enforcer = new \IW8\WA\Security\HttpsEnforcer();
+        $auth     = new \IW8\WA\Security\TokenAuthenticator();
+
         // Controller do /ping
         $ping = new PingController(
             new \IW8\WA\Services\TimeProvider(),
-            new \IW8\WA\Services\LimitsProvider()
+            new \IW8\WA\Services\LimitsProvider(),
+            $auth
         );
+
+        $permission = function (\WP_REST_Request $request) use ($enforcer, $auth) {
+            $https = $enforcer->enforce();
+            if (is_wp_error($https)) {
+                return $https;
+            }
+            $ok = $auth->validate($request);
+            return is_wp_error($ok) ? $ok : true;
+        };
 
         // /wp-json/iw8-wa/v1/ping
         register_rest_route($this->namespace, '/ping', [
             'methods'  => 'GET',
             'callback' => [$ping, 'handle'],
-            'permission_callback' => '__return_true', // auth/https entram na próxima etapa
+            'permission_callback' => $permission,
             'args' => [],
         ]);
 
-        // /wp-json/iw8-wa/v1/clicks (ainda placeholder 501)
+        // /wp-json/iw8-wa/v1/clicks (ainda placeholder 501, mas já protegido)
         register_rest_route($this->namespace, '/clicks', [
             'methods'  => 'GET',
             'callback' => [$this, 'notImplemented'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => $permission,
             'args' => [],
         ]);
     }

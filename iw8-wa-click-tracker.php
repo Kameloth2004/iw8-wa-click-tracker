@@ -38,11 +38,15 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     }
 }
 
-// === Carregamento direto das classes REST (bypass do Composer no dev local) ===
+// === Carregamento direto das classes REST/Security (bypass do Composer no dev local) ===
+require_once __DIR__ . '/src/Support/Env.php';
+require_once __DIR__ . '/src/Security/HttpsEnforcer.php';
+require_once __DIR__ . '/src/Security/TokenAuthenticator.php';
 require_once __DIR__ . '/src/Services/TimeProvider.php';
 require_once __DIR__ . '/src/Services/LimitsProvider.php';
 require_once __DIR__ . '/src/Rest/PingController.php';
 require_once __DIR__ . '/src/Rest/ApiRegistrar.php';
+
 
 // === Registra as rotas REST no init do WP REST ===
 add_action('rest_api_init', function () {
