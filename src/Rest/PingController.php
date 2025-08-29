@@ -7,6 +7,8 @@ namespace IW8\WA\Rest;
 use IW8\WA\Services\TimeProvider;
 use IW8\WA\Services\LimitsProvider;
 use IW8\WA\Security\TokenAuthenticator;
+use IW8\WA\Security\RateLimiter;
+use IW8\WA\Http\ErrorFactory;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -14,9 +16,9 @@ if (!defined('ABSPATH')) {
 
 final class PingController
 {
-    private TimeProvider $time;
-    private LimitsProvider $limits;
-    private TokenAuthenticator $auth;
+    private $time;
+    private $limits;
+    private $auth;
 
     public function __construct(TimeProvider $time, LimitsProvider $limits, TokenAuthenticator $auth)
     {
@@ -25,38 +27,48 @@ final class PingController
         $this->auth   = $auth;
     }
 
-    /** Handler do GET /ping (agora com token_last4 preenchido) */
     public function handle(\WP_REST_Request $request)
     {
+        // Rate limit por token+rota
+        $token = $this->auth->extractToken($request);
+        $rl    = new RateLimiter();
+        $key   = $rl->keyFor($request->get_route(), (string)$token);
+        $meta  = $rl->check($key, $this->limits->getRatePerMinute(), 60);
+
+        if (!$meta['allowed']) {
+            $resp = ErrorFactory::make('too_many_requests', 'Limite de taxa excedido.', 429, array(), $meta['retry_after_seconds']);
+            return $rl->applyHeaders($resp, $meta);
+        }
+
         $home = get_home_url();
         $domain = wp_parse_url($home, PHP_URL_HOST);
 
-        $token = $this->auth->extractToken($request);
-        $payload = [
+        $payload = array(
             'service' => 'iw8-wa-click-tracker',
             'version' => defined('IW8_WA_CLICK_TRACKER_VERSION') ? IW8_WA_CLICK_TRACKER_VERSION : 'unknown',
             'time_utc' => $this->time->nowIsoUtc(),
-            'site' => [
+            'site' => array(
                 'domain'  => $domain ?: null,
                 'wp_home' => $home,
-            ],
-            'auth' => [
+            ),
+            'auth' => array(
                 'token_scope' => 'domain',
                 'token_last4' => $this->auth->last4($token),
-            ],
-            'limits' => [
-                'rate_per_minute'  => $this->limits->getRatePerMinute(),
-                'max_page_size'    => $this->limits->getMaxPageSize(),
+            ),
+            'limits' => array(
+                'rate_per_minute'   => $this->limits->getRatePerMinute(),
+                'max_page_size'     => $this->limits->getMaxPageSize(),
                 'default_page_size' => $this->limits->getDefaultPageSize(),
                 'max_lookback_days' => $this->limits->getMaxLookbackDays(),
-            ],
-            'pagination' => [
-                'ordering'          => $this->limits->getCanonicalOrdering(),
-                'cursor_semantics'  => $this->limits->getCursorSemantics(),
+            ),
+            'pagination' => array(
+                'ordering'           => $this->limits->getCanonicalOrdering(),
+                'cursor_semantics'   => $this->limits->getCursorSemantics(),
                 'cursor_ttl_seconds' => $this->limits->getCursorTtlSeconds(),
-            ],
-        ];
+            ),
+        );
 
-        return new \WP_REST_Response($payload, 200);
+        $resp = new \WP_REST_Response($payload, 200);
+        return $rl->applyHeaders($resp, $meta);
     }
 }

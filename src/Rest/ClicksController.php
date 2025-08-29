@@ -10,6 +10,8 @@ use IW8\WA\Validation\CursorCodec;
 use IW8\WA\Http\JsonResponse;
 use IW8\WA\Http\ErrorFactory;
 use IW8\WA\Repositories\ClickRepository;
+use IW8\WA\Security\RateLimiter;
+use IW8\WA\Security\TokenAuthenticator;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -17,13 +19,9 @@ if (!defined('ABSPATH')) {
 
 final class ClicksController
 {
-    /** @var LimitsProvider */
     private $limits;
-    /** @var RequestValidator */
     private $validator;
-    /** @var CursorCodec */
     private $cursor;
-    /** @var ClickRepository */
     private $repo;
 
     public function __construct(LimitsProvider $limits, RequestValidator $validator, CursorCodec $cursor, ClickRepository $repo)
@@ -36,9 +34,24 @@ final class ClicksController
 
     public function handle(\WP_REST_Request $request)
     {
+        // Rate limit por token+rota (antes de qualquer trabalho)
+        $auth  = new TokenAuthenticator();
+        $token = $auth->extractToken($request);
+
+        $rl   = new RateLimiter();
+        $key  = $rl->keyFor($request->get_route(), (string)$token);
+        $meta = $rl->check($key, $this->limits->getRatePerMinute(), 60);
+
+        if (!$meta['allowed']) {
+            $resp = ErrorFactory::make('too_many_requests', 'Limite de taxa excedido.', 429, array(), $meta['retry_after_seconds']);
+            return $rl->applyHeaders($resp, $meta);
+        }
+
+        // Validação
         $v = $this->validator->validate($request);
         if (is_wp_error($v)) {
-            return ErrorFactory::make($v->get_error_code(), $v->get_error_message(), (int)($v->get_error_data()['status'] ?? 400));
+            $resp = ErrorFactory::make($v->get_error_code(), $v->get_error_message(), (int)($v->get_error_data()['status'] ?? 400));
+            return $rl->applyHeaders($resp, $meta);
         }
 
         $limit  = (int)$v['limit'];
@@ -47,8 +60,10 @@ final class ClicksController
         if (!empty($v['using_cursor']) && !empty($v['cursor_raw'])) {
             $decoded = $this->cursor->decode((string)$v['cursor_raw']);
             if (is_wp_error($decoded)) {
-                return ErrorFactory::make($decoded->get_error_code(), $decoded->get_error_message(), (int)($decoded->get_error_data()['status'] ?? 400));
+                $resp = ErrorFactory::make($decoded->get_error_code(), $decoded->get_error_message(), (int)($decoded->get_error_data()['status'] ?? 400));
+                return $rl->applyHeaders($resp, $meta);
             }
+
             $res   = $this->repo->fetchAfter((string)$decoded['t'], (int)$decoded['i'], $limit, $fields);
             $items = $res['items'];
             $last  = $res['last'];
@@ -58,12 +73,12 @@ final class ClicksController
                 'count' => count($items),
                 'items' => $items,
             );
-
             if ($last !== null && count($items) === $limit) {
                 $payload['next_cursor'] = $this->cursor->encode((string)$last['t'], (int)$last['i']);
             }
 
-            return JsonResponse::ok($payload, 200);
+            $resp = JsonResponse::ok($payload, 200);
+            return $rl->applyHeaders($resp, $meta);
         }
 
         // Sem cursor: usa janela since/until
@@ -79,11 +94,11 @@ final class ClicksController
             'count' => count($items),
             'items' => $items,
         );
-
         if ($last !== null && count($items) === $limit) {
             $payload['next_cursor'] = $this->cursor->encode((string)$last['t'], (int)$last['i']);
         }
 
-        return JsonResponse::ok($payload, 200);
+        $resp = JsonResponse::ok($payload, 200);
+        return $rl->applyHeaders($resp, $meta);
     }
 }

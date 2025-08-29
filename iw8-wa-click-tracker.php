@@ -53,6 +53,7 @@ require_once __DIR__ . '/src/Validation/RequestValidator.php';
 require_once __DIR__ . '/src/Rest/ClicksController.php';
 require_once __DIR__ . '/src/Repositories/ClickRepository.php';
 require_once __DIR__ . '/includes/install/db-migrations.php';
+require_once __DIR__ . '/src/Security/RateLimiter.php';
 
 // Roda ao ativar
 register_activation_hook(__FILE__, 'iw8_wa_run_migrations');
