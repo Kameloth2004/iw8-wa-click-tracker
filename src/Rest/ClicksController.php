@@ -9,6 +9,7 @@ use IW8\WA\Validation\RequestValidator;
 use IW8\WA\Validation\CursorCodec;
 use IW8\WA\Http\JsonResponse;
 use IW8\WA\Http\ErrorFactory;
+use IW8\WA\Repositories\ClickRepository;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -16,18 +17,23 @@ if (!defined('ABSPATH')) {
 
 final class ClicksController
 {
-    private LimitsProvider $limits;
-    private RequestValidator $validator;
-    private CursorCodec $cursor;
+    /** @var LimitsProvider */
+    private $limits;
+    /** @var RequestValidator */
+    private $validator;
+    /** @var CursorCodec */
+    private $cursor;
+    /** @var ClickRepository */
+    private $repo;
 
-    public function __construct(LimitsProvider $limits, RequestValidator $validator, CursorCodec $cursor)
+    public function __construct(LimitsProvider $limits, RequestValidator $validator, CursorCodec $cursor, ClickRepository $repo)
     {
         $this->limits    = $limits;
         $this->validator = $validator;
         $this->cursor    = $cursor;
+        $this->repo      = $repo;
     }
 
-    /** MVP: valida params e retorna página vazia (sem DB ainda) */
     public function handle(\WP_REST_Request $request)
     {
         $v = $this->validator->validate($request);
@@ -35,26 +41,49 @@ final class ClicksController
             return ErrorFactory::make($v->get_error_code(), $v->get_error_message(), (int)($v->get_error_data()['status'] ?? 400));
         }
 
-        // Se vier cursor, o decode já será exercitado no próximo passo.
-        if (!empty($v['using_cursor']) && isset($v['cursor_raw'])) {
+        $limit  = (int)$v['limit'];
+        $fields = (array)$v['fields'];
+
+        if (!empty($v['using_cursor']) && !empty($v['cursor_raw'])) {
             $decoded = $this->cursor->decode((string)$v['cursor_raw']);
             if (is_wp_error($decoded)) {
                 return ErrorFactory::make($decoded->get_error_code(), $decoded->get_error_message(), (int)($decoded->get_error_data()['status'] ?? 400));
             }
+            $res   = $this->repo->fetchAfter((string)$decoded['t'], (int)$decoded['i'], $limit, $fields);
+            $items = $res['items'];
+            $last  = $res['last'];
+
+            $payload = array(
+                'range' => array('effective_since' => null, 'effective_until' => null),
+                'count' => count($items),
+                'items' => $items,
+            );
+
+            if ($last !== null && count($items) === $limit) {
+                $payload['next_cursor'] = $this->cursor->encode((string)$last['t'], (int)$last['i']);
+            }
+
+            return JsonResponse::ok($payload, 200);
         }
 
-        $range = [
-            'effective_since' => $v['effective_since'] ?? null,
-            'effective_until' => $v['effective_until'] ?? null,
-        ];
+        // Sem cursor: usa janela since/until
+        $sinceIso = (string)$v['effective_since'];
+        $untilIso = (string)$v['effective_until'];
 
-        $resp = [
-            'range' => $range,
-            'count' => 0,
-            'items' => [],
-            // Sem next_cursor quando não há dados
-        ];
+        $res   = $this->repo->fetchByRange($sinceIso, $untilIso, $limit, $fields);
+        $items = $res['items'];
+        $last  = $res['last'];
 
-        return JsonResponse::ok($resp, 200);
+        $payload = array(
+            'range' => array('effective_since' => $sinceIso, 'effective_until' => $untilIso),
+            'count' => count($items),
+            'items' => $items,
+        );
+
+        if ($last !== null && count($items) === $limit) {
+            $payload['next_cursor'] = $this->cursor->encode((string)$last['t'], (int)$last['i']);
+        }
+
+        return JsonResponse::ok($payload, 200);
     }
 }

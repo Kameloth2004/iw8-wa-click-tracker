@@ -51,6 +51,7 @@ require_once __DIR__ . '/src/Http/JsonResponse.php';
 require_once __DIR__ . '/src/Validation/CursorCodec.php';
 require_once __DIR__ . '/src/Validation/RequestValidator.php';
 require_once __DIR__ . '/src/Rest/ClicksController.php';
+require_once __DIR__ . '/src/Repositories/ClickRepository.php';
 
 
 // === Registra as rotas REST no init do WP REST ===

@@ -54,7 +54,8 @@ final class ApiRegistrar
         $limits     = new \IW8\WA\Services\LimitsProvider();
         $validator  = new \IW8\WA\Validation\RequestValidator($limits);
         $cursor     = new \IW8\WA\Validation\CursorCodec();
-        $clicks     = new ClicksController($limits, $validator, $cursor);
+        $repo       = new \IW8\WA\Repositories\ClickRepository();
+        $clicksCtrl = new ClicksController($limits, $validator, $cursor, $repo);
 
         register_rest_route($this->namespace, '/clicks', [
             'methods'  => 'GET',
