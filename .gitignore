@@ -2,7 +2,6 @@
 /.idea/
 /.vscode/
 /node_modules/
-/vendor/
 *.zip
 *.log
 *.cache
@@ -15,3 +14,4 @@
 
 # Arquivos temporários de teste
 test-*-temp.php
+dist/
