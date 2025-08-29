@@ -52,6 +52,19 @@ require_once __DIR__ . '/src/Validation/CursorCodec.php';
 require_once __DIR__ . '/src/Validation/RequestValidator.php';
 require_once __DIR__ . '/src/Rest/ClicksController.php';
 require_once __DIR__ . '/src/Repositories/ClickRepository.php';
+require_once __DIR__ . '/includes/install/db-migrations.php';
+
+// Roda ao ativar
+register_activation_hook(__FILE__, 'iw8_wa_run_migrations');
+
+// Roda se a versão de DB estiver desatualizada
+add_action('admin_init', function () {
+    $current = get_option('iw8_wa_db_version');
+    $target  = '2025-08-29-1';
+    if ($current !== $target) {
+        iw8_wa_run_migrations();
+    }
+});
 
 
 // === Registra as rotas REST no init do WP REST ===
