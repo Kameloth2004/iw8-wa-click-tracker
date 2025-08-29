@@ -10,26 +10,55 @@ if (!defined('ABSPATH')) {
 
 final class ClickRepository
 {
-    /** Nome da tabela (ajuste se seu plugin usar outro nome) */
-    private function tableName(): string
+    /** Retorna o nome da tabela preferida e, se necessário, a legada (fallback). */
+    private function resolveTableName()
     {
         global $wpdb;
-        return $wpdb->prefix . 'iw8_wa_clicks';
+        $new = $wpdb->prefix . 'iw8_wa_clicks';
+        $old = $wpdb->prefix . 'wa_clicks';
+
+        if ($this->tableExists($new)) return $new;
+        if ($this->tableExists($old)) return $old;
+        return $new; // padrão (mesmo que ainda não exista)
     }
 
-    /** Verifica se a tabela existe. Em caso negativo, retornamos vazio. */
-    private function tableExists(): bool
+    private function tableExists($table)
     {
         global $wpdb;
-        $table = $this->tableName();
         $like  = $wpdb->esc_like($table);
         $sql   = "SHOW TABLES LIKE %s";
         $found = $wpdb->get_var($wpdb->prepare($sql, $like));
         return is_string($found);
     }
 
-    /** Lista completa de campos suportados no SELECT */
-    private function allSelectableFields(): array
+    /** Descobre o esquema básico: colunas existentes e qual coluna usar como "clicked_at". */
+    private function discoverSchema($table)
+    {
+        global $wpdb;
+
+        $cols = array();
+        $rows = $wpdb->get_results("SHOW COLUMNS FROM `{$table}`", ARRAY_A);
+        if (is_array($rows)) {
+            foreach ($rows as $r) {
+                if (isset($r['Field'])) {
+                    $cols[] = (string)$r['Field'];
+                }
+            }
+        }
+
+        // coluna de data: prioridade para "clicked_at", senão "created_at"
+        $clickedCol = in_array('clicked_at', $cols, true) ? 'clicked_at'
+            : (in_array('created_at', $cols, true) ? 'created_at' : null);
+
+        return array(
+            'table'      => $table,
+            'columns'    => $cols,
+            'clickedCol' => $clickedCol, // pode ser null se não existir
+        );
+    }
+
+    /** Lista de campos públicos possíveis (contrato atual). */
+    private function allSelectableFields()
     {
         return array(
             'id',
@@ -45,30 +74,85 @@ final class ClickRepository
         );
     }
 
-    /** Retorna lista de colunas para SELECT, sempre incluindo id e clicked_at para cursor/ordenação */
-    private function selectColumns(array $requestedFields): array
+    /**
+     * Gera SELECTs considerando o esquema detectado.
+     * - Garante presença de id e clicked_at (com alias se necessário).
+     * - Intersecta requestedFields com colunas disponíveis.
+     * @return array{select:string, publicFields:array, clickedCol:string}
+     */
+    private function buildSelectParts($requestedFields, $schema)
     {
-        $all  = $this->allSelectableFields();
-        $req  = array_values(array_intersect($requestedFields, $all));
-        // Garante presença de id e clicked_at para cursor/ordenação
-        if (!in_array('id', $req, true)) {
-            $req[] = 'id';
-        }
-        if (!in_array('clicked_at', $req, true)) {
-            $req[] = 'clicked_at';
-        }
-        // Unicos e na mesma ordem estável
-        $unique = array();
-        foreach ($req as $f) {
-            if (!in_array($f, $unique, true)) {
-                $unique[] = $f;
+        $available = $schema['columns'];
+        $clickedColDb = $schema['clickedCol']; // 'clicked_at' ou 'created_at' ou null
+        $publicAll = $this->allSelectableFields();
+
+        // Campos solicitados válidos
+        $req = array();
+        foreach ((array)$requestedFields as $f) {
+            if (in_array($f, $publicAll, true)) {
+                $req[] = $f;
             }
         }
-        return $unique;
+        // Se vazio, devolve todos os possíveis (contrato)
+        if (empty($req)) {
+            $req = $publicAll;
+        }
+
+        // Vamos montar a lista SELECT real considerando colunas existentes
+        $selectPieces = array();
+        $ensureId = true;
+        $ensureClicked = true;
+
+        // Mapear cada campo solicitado para a coluna DB correspondente (se existir)
+        foreach ($req as $f) {
+            if ($f === 'clicked_at') {
+                if ($clickedColDb === 'clicked_at') {
+                    $selectPieces[] = '`clicked_at`';
+                    $ensureClicked = false;
+                } elseif ($clickedColDb === 'created_at') {
+                    $selectPieces[] = '`created_at` AS `clicked_at`';
+                    $ensureClicked = false;
+                }
+                // se não há nenhuma das duas, não adiciona (vamos lidar abaixo)
+            } elseif (in_array($f, $available, true)) {
+                $selectPieces[] = '`' . $f . '`';
+                if ($f === 'id') $ensureId = false;
+            }
+        }
+
+        // Garante id
+        if ($ensureId && in_array('id', $available, true)) {
+            $selectPieces[] = '`id`';
+        }
+
+        // Garante clicked_at
+        if ($ensureClicked) {
+            if ($clickedColDb === 'clicked_at') {
+                $selectPieces[] = '`clicked_at`';
+            } elseif ($clickedColDb === 'created_at') {
+                $selectPieces[] = '`created_at` AS `clicked_at`';
+            }
+        }
+
+        // Se ainda assim ficou vazio (esquema muito diferente), pega pelo menos id para não quebrar
+        if (empty($selectPieces) && in_array('id', $available, true)) {
+            $selectPieces[] = '`id`';
+        }
+
+        $select = implode(', ', $selectPieces);
+
+        // Campos públicos a devolver (sem forçar extras além dos solicitados)
+        $publicFields = $req;
+
+        return array(
+            'select'     => $select,
+            'publicFields' => $publicFields,
+            'clickedCol' => $clickedColDb ?: 'clicked_at', // default lógico para WHERE/ORDER
+        );
     }
 
-    /** Converte DATETIME (UTC) -> ISO-8601 com Z */
-    private function toIsoUtc($dbValue): ?string
+    /** Converte DATETIME (UTC) -> ISO-8601 Z */
+    private function toIsoUtc($dbValue)
     {
         if (!$dbValue) return null;
         $ts = strtotime((string)$dbValue);
@@ -80,92 +164,94 @@ final class ClickRepository
      * Busca por janela since/until (ordenado) — retorna itens e última tupla para next_cursor.
      * @return array{items: array, last: array|null}
      */
-    public function fetchByRange(string $sinceIso, string $untilIso, int $limit, array $requestedFields): array
+    public function fetchByRange($sinceIso, $untilIso, $limit, $requestedFields)
     {
         global $wpdb;
-        $result = array('items' => array(), 'last' => null);
-        if (!$this->tableExists()) {
-            return $result;
+
+        $table = $this->resolveTableName();
+        if (!$this->tableExists($table)) {
+            return array('items' => array(), 'last' => null);
         }
 
-        $cols   = $this->selectColumns($requestedFields);
-        $select = implode(', ', array_map(function ($c) {
-            return '`' . $c . '`';
-        }, $cols));
-        $table  = $this->tableName();
+        $schema = $this->discoverSchema($table);
+        $parts  = $this->buildSelectParts($requestedFields, $schema);
 
-        // WHERE clicked_at BETWEEN since AND until
-        $sql = "SELECT $select FROM `$table`
-                WHERE `clicked_at` >= %s AND `clicked_at` <= %s
-                ORDER BY `clicked_at` ASC, `id` ASC
+        // Determina a coluna de data real para WHERE/ORDER
+        $clickedColDb = $schema['clickedCol'];
+        if ($clickedColDb === null) {
+            // Sem coluna temporal não dá pra paginar corretamente
+            return array('items' => array(), 'last' => null);
+        }
+
+        $sql = "SELECT {$parts['select']} FROM `{$table}`
+                WHERE `{$clickedColDb}` >= %s AND `{$clickedColDb}` <= %s
+                ORDER BY `{$clickedColDb}` ASC, `id` ASC
                 LIMIT %d";
 
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $sinceIso, $untilIso, $limit), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $sinceIso, $untilIso, (int)$limit), ARRAY_A);
         if (!is_array($rows) || empty($rows)) {
-            return $result;
+            return array('items' => array(), 'last' => null);
         }
 
-        // Constrói items públicos conforme requestedFields (sem forçar id/clicked_at se não pedidos),
-        // mas preserva a última tupla para o cursor.
         $items = array();
         foreach ($rows as $r) {
             if (isset($r['clicked_at'])) {
                 $r['clicked_at'] = $this->toIsoUtc($r['clicked_at']) ?: $r['clicked_at'];
             }
-            // Monta o item só com os campos solicitados originalmente
+            // monta retorno só com os campos públicos solicitados
             $public = array();
-            foreach ($requestedFields as $f) {
+            foreach ($parts['publicFields'] as $f) {
                 if (array_key_exists($f, $r)) {
                     $public[$f] = $r[$f];
                 }
             }
-            // Se nenhum campo foi explicitamente pedido (caso de fallback), devolve tudo
-            if (empty($requestedFields)) {
+            if (empty($public)) {
                 $public = $r;
-            }
+            } // fallback extremo
             $items[] = $public;
         }
 
-        // Última tupla para next_cursor (usa a linha crua)
         $lastRaw = end($rows);
+        $last = null;
         if ($lastRaw && isset($lastRaw['id'], $lastRaw['clicked_at'])) {
-            $result['last'] = array(
+            $last = array(
                 't' => $this->toIsoUtc($lastRaw['clicked_at']) ?: (string)$lastRaw['clicked_at'],
                 'i' => (int)$lastRaw['id'],
             );
         }
 
-        $result['items'] = $items;
-        return $result;
+        return array('items' => $items, 'last' => $last);
     }
 
     /**
-     * Busca após cursor (ordenado) — retorna itens e última tupla.
+     * Busca após cursor (ordenado).
      * @return array{items: array, last: array|null}
      */
-    public function fetchAfter(string $cursorIso, int $cursorId, int $limit, array $requestedFields): array
+    public function fetchAfter($cursorIso, $cursorId, $limit, $requestedFields)
     {
         global $wpdb;
-        $result = array('items' => array(), 'last' => null);
-        if (!$this->tableExists()) {
-            return $result;
+
+        $table = $this->resolveTableName();
+        if (!$this->tableExists($table)) {
+            return array('items' => array(), 'last' => null);
         }
 
-        $cols   = $this->selectColumns($requestedFields);
-        $select = implode(', ', array_map(function ($c) {
-            return '`' . $c . '`';
-        }, $cols));
-        $table  = $this->tableName();
+        $schema = $this->discoverSchema($table);
+        $parts  = $this->buildSelectParts($requestedFields, $schema);
 
-        // WHERE (clicked_at > t) OR (clicked_at = t AND id > i)
-        $sql = "SELECT $select FROM `$table`
-                WHERE (`clicked_at` > %s) OR (`clicked_at` = %s AND `id` > %d)
-                ORDER BY `clicked_at` ASC, `id` ASC
+        $clickedColDb = $schema['clickedCol'];
+        if ($clickedColDb === null) {
+            return array('items' => array(), 'last' => null);
+        }
+
+        $sql = "SELECT {$parts['select']} FROM `{$table}`
+                WHERE (`{$clickedColDb}` > %s) OR (`{$clickedColDb}` = %s AND `id` > %d)
+                ORDER BY `{$clickedColDb}` ASC, `id` ASC
                 LIMIT %d";
 
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cursorIso, $cursorIso, $cursorId, $limit), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cursorIso, $cursorIso, (int)$cursorId, (int)$limit), ARRAY_A);
         if (!is_array($rows) || empty($rows)) {
-            return $result;
+            return array('items' => array(), 'last' => null);
         }
 
         $items = array();
@@ -174,26 +260,26 @@ final class ClickRepository
                 $r['clicked_at'] = $this->toIsoUtc($r['clicked_at']) ?: $r['clicked_at'];
             }
             $public = array();
-            foreach ($requestedFields as $f) {
+            foreach ($parts['publicFields'] as $f) {
                 if (array_key_exists($f, $r)) {
                     $public[$f] = $r[$f];
                 }
             }
-            if (empty($requestedFields)) {
+            if (empty($public)) {
                 $public = $r;
             }
             $items[] = $public;
         }
 
         $lastRaw = end($rows);
+        $last = null;
         if ($lastRaw && isset($lastRaw['id'], $lastRaw['clicked_at'])) {
-            $result['last'] = array(
+            $last = array(
                 't' => $this->toIsoUtc($lastRaw['clicked_at']) ?: (string)$lastRaw['clicked_at'],
                 'i' => (int)$lastRaw['id'],
             );
         }
 
-        $result['items'] = $items;
-        return $result;
+        return array('items' => $items, 'last' => $last);
     }
 }
