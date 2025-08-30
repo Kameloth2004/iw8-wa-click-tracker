@@ -23,8 +23,12 @@ final class TokenAuthenticator
         }
 
         $valid = $this->getValidTokens();
-        if (!empty($valid) && in_array($token, $valid, true)) {
-            return true;
+        if (!empty($valid)) {
+            foreach ($valid as $v) {
+                if (is_string($v) && hash_equals($v, $token)) {
+                    return true;
+                }
+            }
         }
 
         return new \WP_Error(
@@ -102,8 +106,11 @@ final class TokenAuthenticator
     {
         $tokens = [];
 
-        if (defined('IW8_WA_DEV_TOKEN') && is_string(IW8_WA_DEV_TOKEN) && IW8_WA_DEV_TOKEN !== '') {
-            $tokens[] = IW8_WA_DEV_TOKEN;
+        if (defined('IW8_WA_DEV_TOKEN')) {
+            $dev = constant('IW8_WA_DEV_TOKEN'); // evita aviso do linter
+            if (is_string($dev) && $dev !== '') {
+                $tokens[] = $dev;
+            }
         }
 
         $opt = get_option('iw8_wa_domain_token');
