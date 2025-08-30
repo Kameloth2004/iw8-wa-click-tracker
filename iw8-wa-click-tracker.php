@@ -38,6 +38,10 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     }
 }
 
+// Carrega a camada de segurança (sem depender de autoload PSR-4 do plugin)
+require_once __DIR__ . '/includes/Core/Security.php';
+\IW8\WaClickTracker\Core\Security::init();
+
 // === Carregamento direto das classes REST/Security (bypass do Composer no dev local) ===
 require_once __DIR__ . '/src/Support/Env.php';
 require_once __DIR__ . '/src/Security/HttpsEnforcer.php';
@@ -60,9 +64,8 @@ register_activation_hook(__FILE__, 'iw8_wa_run_migrations');
 
 // Roda se a versão de DB estiver desatualizada
 add_action('admin_init', function () {
-    $current = get_option('iw8_wa_db_version');
-    $target  = '2025-08-29-1';
-    if ($current !== $target) {
+    $cur = get_option('iw8_wa_db_version');
+    if ($cur !== IW8_WA_DB_VERSION) {
         iw8_wa_run_migrations();
     }
 });
@@ -409,17 +412,6 @@ function iw8_wa_click_tracker_init_error_notice()
     echo __('Erro ao inicializar IW8 – Rastreador de Cliques WhatsApp.', 'iw8-wa-click-tracker');
     echo '</p></div>';
 }
-
-add_action('admin_init', function () {
-    $cur = get_option('iw8_wa_db_version');
-    if ($cur !== IW8_WA_DB_VERSION) {
-        // Garante/atualiza a tabela (dbDelta aplica diffs, inclusive índices novos)
-        $table_clicks = new \IW8\WaClickTracker\Database\TableClicks();
-        $table_clicks->ensure_table(); // ou ensure_schema(), se você nomeou assim
-
-        update_option('iw8_wa_db_version', IW8_WA_DB_VERSION);
-    }
-});
 
 // Inicializar o plugin apenas quando o WordPress estiver pronto
 add_action('init', 'iw8_wa_click_tracker_init', 20);

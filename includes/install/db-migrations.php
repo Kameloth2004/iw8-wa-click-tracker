@@ -38,7 +38,7 @@ function iw8_wa_run_migrations()
     dbDelta($sql);
 
     // Atualiza versão da migração
-    update_option('iw8_wa_db_version', '2025-08-29-1');
+    update_option('iw8_wa_db_version', IW8_WA_DB_VERSION);
 
     // Seed opcional de desenvolvimento
     if (defined('IW8_WA_SEED_DEV') && IW8_WA_SEED_DEV) {
