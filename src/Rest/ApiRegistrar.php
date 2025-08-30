@@ -9,6 +9,9 @@ declare(strict_types=1);
 
 namespace IW8\WA\Rest;
 
+use WP_REST_Server;
+use IW8\WaClickTracker\Rest\PingController;
+
 if (!defined('ABSPATH')) {
     exit;
 }
@@ -27,7 +30,7 @@ final class ApiRegistrar
         $enforcer = new \IW8\WA\Security\HttpsEnforcer();
         $auth     = new \IW8\WA\Security\TokenAuthenticator();
 
-        // /ping
+        // Controller do /ping
         $ping = new PingController(
             new \IW8\WA\Services\TimeProvider(),
             new \IW8\WA\Services\LimitsProvider(),
@@ -43,6 +46,7 @@ final class ApiRegistrar
             return is_wp_error($ok) ? $ok : true;
         };
 
+        // /wp-json/iw8-wa/v1/ping
         register_rest_route($this->namespace, '/ping', [
             'methods'  => 'GET',
             'callback' => [$ping, 'handle'],
@@ -50,7 +54,7 @@ final class ApiRegistrar
             'args' => [],
         ]);
 
-        // /clicks (agora com validação e resposta vazia)
+        // /wp-json/iw8-wa/v1/clicks
         $limits     = new \IW8\WA\Services\LimitsProvider();
         $validator  = new \IW8\WA\Validation\RequestValidator($limits);
         $cursor     = new \IW8\WA\Validation\CursorCodec();
@@ -59,9 +63,18 @@ final class ApiRegistrar
 
         register_rest_route($this->namespace, '/clicks', [
             'methods'  => 'GET',
-            'callback' => [$clicks, 'handle'],
+            'callback' => function (\WP_REST_Request $request) use ($clicksCtrl) {
+                return $clicksCtrl->handle($request);
+            },
             'permission_callback' => $permission,
             'args' => [],
+        ]);
+
+        // POST em /ping deve retornar 405 (em vez de 404)
+        register_rest_route($this->namespace, '/ping', [
+            'methods'             => WP_REST_Server::CREATABLE, // POST
+            'callback'            => [PingController::class, 'method_not_allowed'],
+            'permission_callback' => '__return_true', // não autentica; resposta é 405
         ]);
     }
 }

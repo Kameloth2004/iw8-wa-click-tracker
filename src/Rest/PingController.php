@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace IW8\WA\Rest;
+namespace IW8\WaClickTracker\Rest;
 
 use IW8\WA\Services\TimeProvider;
 use IW8\WA\Services\LimitsProvider;
@@ -70,5 +70,16 @@ final class PingController
 
         $resp = new \WP_REST_Response($payload, 200);
         return $rl->applyHeaders($resp, $meta);
+    }
+
+    // Retorna 405 para métodos não permitidos em /ping
+    public static function method_not_allowed(\WP_REST_Request $request): \WP_REST_Response
+    {
+        $response = new \WP_REST_Response(
+            ['code' => 'method_not_allowed', 'message' => 'Method not allowed. Use GET.'],
+            405
+        );
+        $response->header('Allow', 'GET');
+        return $response;
     }
 }
