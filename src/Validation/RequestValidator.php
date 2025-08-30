@@ -149,27 +149,56 @@ final class RequestValidator
      */
     public static function validateFields($fieldsCsv, array $allowed)
     {
-        if ($fieldsCsv === null || trim((string)$fieldsCsv) === '') {
-            return array(); // sem restrição: o controller decide o default
+        $fieldsCsv = is_string($fieldsCsv) ? trim($fieldsCsv) : '';
+
+        // Sem fields => deixe o caller decidir (retorne array vazio para sinalizar “use defaults”)
+        if ($fieldsCsv === '') {
+            return [];
         }
 
-        $parts = array_values(array_filter(array_map('trim', explode(',', (string)$fieldsCsv)), 'strlen'));
-        $parts = array_unique($parts);
+        // Parse básico
+        $parts = [];
+        foreach (explode(',', $fieldsCsv) as $p) {
+            $p = trim($p);
+            if ($p !== '') {
+                $parts[] = $p;
+            }
+        }
+        if (empty($parts)) {
+            return [];
+        }
 
-        $invalid = array_values(array_diff($parts, $allowed));
+        // Alias conhecidos (entrada) → nome canônico (saída)
+        $aliasMap = [
+            'created_at' => 'clicked_at',
+        ];
+
+        $normalized = [];
+        foreach ($parts as $p) {
+            $pLower = strtolower($p);
+            if (isset($aliasMap[$pLower])) {
+                $pLower = $aliasMap[$pLower];
+            }
+            $normalized[] = $pLower;
+        }
+
+        // Validar contra a lista permitida
+        $invalid = array_diff($normalized, $allowed);
         if (!empty($invalid)) {
-            return new \WP_Error(
-                'invalid_fields',
-                sprintf(
-                    /* translators: %s = lista de campos inválidos */
-                    __('Campos inválidos em "fields": %s', 'iw8-wa-click-tracker'),
-                    implode(', ', $invalid)
-                ),
-                array('status' => 400)
-            );
+            // Reportar os nomes que o cliente enviou (já normalizados/aliased)
+            $msg = 'Campos inválidos em "fields": ' . implode(', ', array_values($invalid));
+            return new \WP_Error('invalid_fields', $msg, ['status' => 400]);
         }
 
-        return $parts;
+        // Remover duplicatas e preservar ordem de primeira ocorrência
+        $final = [];
+        foreach ($normalized as $f) {
+            if (!in_array($f, $final, true)) {
+                $final[] = $f;
+            }
+        }
+
+        return $final;
     }
 
     /**
