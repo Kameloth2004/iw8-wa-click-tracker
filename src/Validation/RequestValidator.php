@@ -41,11 +41,9 @@ final class RequestValidator
      */
     public function validate($r)
     {
-        // LIMIT — deve ser numérico e ficar entre 1 e getMaxPageSize()
+        // 1) LIMIT — numérico e entre 1..max
         $rawLimit = $r->get_param('limit');
-
         if ($rawLimit === null || $rawLimit === '') {
-            // ausente → usa default
             $limit = $this->limits->getDefaultPageSize();
         } else {
             if (!is_numeric($rawLimit)) {
@@ -62,12 +60,12 @@ final class RequestValidator
             }
         }
 
-        // fields (lista permissiva aqui; a validação estrita é feita no controller)
+        // 2) FIELDS — permissivo aqui; validação estrita no controller
         $fieldsCsv = trim((string)$r->get_param('fields'));
         if ($fieldsCsv === '') {
             $fields = $this->allowedFields;
         } else {
-            $parts = array();
+            $parts = [];
             foreach (explode(',', $fieldsCsv) as $p) {
                 $p = trim($p);
                 if ($p !== '') {
@@ -80,23 +78,33 @@ final class RequestValidator
             }
         }
 
-        // --- Se veio next_cursor, prioriza fluxo de cursor
-        $cursorRaw = $r->get_param('next_cursor');
-        if (is_string($cursorRaw)) {
-            $cursorRaw = trim($cursorRaw);
+        // 3) CURSOR — prioriza modo cursor quando presente
+        //    Aceita "cursor" (oficial) e "next_cursor" (alias) — só usa o alias se "cursor" estiver vazio.
+        $cursorRaw = $r->get_param('cursor');
+        $cursorRaw = is_string($cursorRaw) ? trim($cursorRaw) : '';
+
+        if ($cursorRaw === '') {
+            $alias = $r->get_param('next_cursor'); // alias opcional
+            if (is_string($alias)) {
+                $alias = trim($alias);
+            }
+            if (!empty($alias)) {
+                $cursorRaw = $alias;
+            }
         }
-        if (!empty($cursorRaw)) {
-            return array(
+
+        if ($cursorRaw !== '') {
+            return [
                 'using_cursor'    => true,
                 'cursor_raw'      => $cursorRaw,
                 'limit'           => $limit,
                 'fields'          => $fields,
                 'effective_since' => null,
                 'effective_until' => null,
-            );
+            ];
         }
 
-        // since/until (mínimo funcional; defaults de 7 dias)
+        // 4) RANGE since/until — defaults de 7 dias, UTC
         $nowUtc = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
         $until  = $this->readIsoOrNull($r->get_param('until'));
         $since  = $this->readIsoOrNull($r->get_param('since'));
@@ -108,13 +116,14 @@ final class RequestValidator
             $since = $until->sub(new \DateInterval('P7D'));
         }
 
-        return array(
+        return [
             'using_cursor'    => false,
+            'cursor_raw'      => null,
             'limit'           => $limit,
             'fields'          => $fields,
             'effective_since' => $since->format('Y-m-d\TH:i:s\Z'),
             'effective_until' => $until->format('Y-m-d\TH:i:s\Z'),
-        );
+        ];
     }
 
     /** @param mixed $s @return \DateTimeImmutable|null */
