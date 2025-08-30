@@ -4,7 +4,7 @@
  * Plugin Name: IW8 – Rastreador de Cliques WhatsApp
  * Plugin URI: https://github.com/iw8/iw8-wa-click-tracker
  * Description: Plugin para rastrear cliques em links do WhatsApp e gerar relatórios detalhados
- * Version:  1.3.2
+ * Version:  1.4.0
  * Requires at least: 6.0
  * Tested up to: 6.4
  * Requires PHP: 7.4
@@ -27,6 +27,67 @@
 if (!defined('ABSPATH')) {
     exit;
 }
+
+// === Composer autoload (precisa vir ANTES de qualquer uso de classes do src/) ===
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+} else {
+    // Log simples para diagnosticar no ambiente Local (Logs > PHP)
+    if (function_exists('error_log')) {
+        error_log('IW8_WA: vendor/autoload.php não encontrado');
+    }
+}
+
+// Carrega a camada de segurança (sem depender de autoload PSR-4 do plugin)
+require_once __DIR__ . '/includes/Core/Security.php';
+\IW8\WaClickTracker\Core\Security::init();
+
+// === Carregamento direto das classes REST/Security (bypass do Composer no dev local) ===
+require_once __DIR__ . '/src/Support/Env.php';
+require_once __DIR__ . '/src/Security/HttpsEnforcer.php';
+require_once __DIR__ . '/src/Security/TokenAuthenticator.php';
+require_once __DIR__ . '/src/Services/TimeProvider.php';
+require_once __DIR__ . '/src/Services/LimitsProvider.php';
+require_once __DIR__ . '/src/Rest/PingController.php';
+require_once __DIR__ . '/src/Rest/ApiRegistrar.php';
+require_once __DIR__ . '/src/Http/ErrorFactory.php';
+require_once __DIR__ . '/src/Http/JsonResponse.php';
+require_once __DIR__ . '/src/Validation/CursorCodec.php';
+require_once __DIR__ . '/src/Validation/RequestValidator.php';
+require_once __DIR__ . '/src/Rest/ClicksController.php';
+require_once __DIR__ . '/src/Repositories/ClickRepository.php';
+require_once __DIR__ . '/includes/install/db-migrations.php';
+require_once __DIR__ . '/src/Security/RateLimiter.php';
+
+// Roda ao ativar
+register_activation_hook(__FILE__, 'iw8_wa_run_migrations');
+
+// Roda se a versão de DB estiver desatualizada
+add_action('admin_init', function () {
+    $cur = get_option('iw8_wa_db_version');
+    if ($cur !== IW8_WA_DB_VERSION) {
+        iw8_wa_run_migrations();
+    }
+});
+
+
+// === Registra as rotas REST no init do WP REST ===
+add_action('rest_api_init', function () {
+    // Se por algum motivo o autoload não carregou, registramos o log e abortamos
+    if (!class_exists(\IW8\WA\Rest\ApiRegistrar::class)) {
+        if (function_exists('error_log')) {
+            error_log('IW8_WA REST: ApiRegistrar não encontrado no autoload');
+        }
+        return;
+    }
+
+    $registrar = new \IW8\WA\Rest\ApiRegistrar();
+    $registrar->register();
+
+    if (function_exists('error_log')) {
+        error_log('IW8_WA REST: rotas registradas (iw8-wa/v1)');
+    }
+});
 
 // === Auto-update via GitHub (PUC v5) – Bootstrap ===
 
@@ -53,7 +114,7 @@ if (class_exists(\YahnisElsts\PluginUpdateChecker\v5\PucFactory::class)) {
 }
 
 // Definir constantes do plugin
-define('IW8_WA_CLICK_TRACKER_VERSION', '1.3.2');
+define('IW8_WA_CLICK_TRACKER_VERSION', '1.4.0');
 define('IW8_WA_CLICK_TRACKER_PLUGIN_SLUG', 'iw8-wa-click-tracker');
 define('IW8_WA_CLICK_TRACKER_PLUGIN_FILE', __FILE__);
 define('IW8_WA_CLICK_TRACKER_PLUGIN_DIR', plugin_dir_path(__FILE__));
@@ -352,16 +413,14 @@ function iw8_wa_click_tracker_init_error_notice()
     echo '</p></div>';
 }
 
-add_action('admin_init', function () {
-    $cur = get_option('iw8_wa_db_version');
-    if ($cur !== IW8_WA_DB_VERSION) {
-        // Garante/atualiza a tabela (dbDelta aplica diffs, inclusive índices novos)
-        $table_clicks = new \IW8\WaClickTracker\Database\TableClicks();
-        $table_clicks->ensure_table(); // ou ensure_schema(), se você nomeou assim
-
-        update_option('iw8_wa_db_version', IW8_WA_DB_VERSION);
-    }
-});
-
 // Inicializar o plugin apenas quando o WordPress estiver pronto
 add_action('init', 'iw8_wa_click_tracker_init', 20);
+
+add_action('rest_api_init', function () {
+    // Autoloader do Composer já deve estar ativo anteriormente no bootstrap.
+    if (!class_exists(\IW8\WA\Rest\ApiRegistrar::class)) {
+        return; // segurança em ambiente de dev
+    }
+    $registrar = new \IW8\WA\Rest\ApiRegistrar();
+    $registrar->register();
+});
