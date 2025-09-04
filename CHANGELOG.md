@@ -1,76 +1,79 @@
-# Changelog
+# Changelog — IW8 – WA Click Tracker
 
-Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
+Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.  
+Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e em [SemVer](https://semver.org/lang/pt-BR/).
 
-O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
-e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+## [1.4.0] - 2025-09-04
 
-## 1.4.0 — 2025-09-04
+### Adicionado
+
 - **Token novo** `iw8_click_token` com fallback no legado `iw8_wa_domain_token`.
-- **Admin – Configurações**: gerar/rotacionar token, revelar/copiar (com fallback), exportar JSON.
-- **Telefone**: salvamento corrigido via `admin-post` (sem telas brancas) + aviso quando ausente.
-- **REST compat**: wrapper do `permission_callback` em `/iw8-wa/v1/*` para aceitar o token novo.
-- **Headers de serviço**: `X-Service-Version`, rate limit e cursor *forward-only*.
+- **Admin – Configurações**: gerar/rotacionar token, revelar/copiar (com fallback sem `navigator.clipboard`), e **exportar JSON** (contendo `base_url`, `token`, `plugin.version`).
+- **API REST** com endpoints **`/wp-json/iw8-wa/v1/ping`** e **`/wp-json/iw8-wa/v1/clicks`**.
+- **Paginação por cursor (forward-only)** no `/clicks` (**`next_cursor`**; cabeçalho **`X-Cursor-Semantics: forward_only`**).
+- **Rate limit: 60 rpm** por token, com cabeçalhos **`X-RateLimit-Limit`**, **`X-RateLimit-Remaining`**, **`X-RateLimit-Reset`** (e **`Retry-After`** em estouro).
+- **Cabeçalho de versão do serviço**: **`X-Service-Version: 1.4.0`**.
+- **Compat REST**: _wrapper_ de `permission_callback` em **`/wp-json/iw8-wa/v1/*`** aceitando o token novo com fallback no legado.
+
+### Corrigido
+
+- **Telefone WhatsApp**: salvamento via `admin-post` (sem telas brancas), sanitização (apenas dígitos) e aviso quando ausente.
+
+### Alterado
+
+- **Update URI** do plugin apontando para o repositório GitHub correto.
+- **Empacotamento**: `vendor/` versionado; `dist/` ignorado (compatível com PUC/ZIP).
+- **Validação** de parâmetros nos endpoints (`fields`, `limit`, `since`, `until`) com erros 4xx claros.
+- **Alias de data**: `created_at → clicked_at` (o endpoint sempre retorna `clicked_at`).
+
+### Compatibilidade
+
+- **Fallback de leitura** para tabela legada **`{$prefix}wa_clicks`** quando **`{$prefix}iw8_wa_clicks`** não existir.
+- Prioridade de token em produção: **`iw8_click_token` → `iw8_wa_domain_token`**.
+- Todos os horários na API são **UTC (ISO-8601 com `Z`)**.
+
+### Segurança
+
+- **HTTPS recomendado/obrigatório** em produção; ambientes sem TLS podem sofrer recusas (401) conforme política.
+- Observação de **WAF/CDN** (ex.: Cloudflare): liberar **`/wp-json/iw8-wa/*`**.
+
+---
 
 ## [1.3.0] - 2024-01-01
 
 ### Adicionado
-- Estrutura inicial do plugin
-- Sistema de autoload PSR-4
-- Classes base para todas as funcionalidades
-- Arquivos de assets (CSS/JS) básicos
-- Preparação para sistema de traduções
-- Estrutura para atualizações via GitHub
 
-### Estrutura Criada
-- **Core**: Plugin principal, Assets, Versions, Updater, Security, Logger, Hooks
-- **Database**: TableClicks, Migrations, ClickRepository
-- **Admin**: Menu e páginas (Clicks, Diagnostics, Settings)
-- **Frontend**: Tracker e UrlMatcher
-- **Ajax**: ClickController
-- **Export**: CsvExporter
-- **Rest**: Api
-- **Compat**: Builders
-- **Utils**: Helpers
+- **Estrutura inicial do plugin** com autoload PSR-4, classes base e _stubs_ funcionais.
+- **Admin**: Menu e páginas (**Clicks**, **Diagnostics**, **Settings**) iniciais.
+- **Frontend**: _Tracker_ e `UrlMatcher` (base).
+- **Ajax**: `ClickController` (base).
+- **Export**: `CsvExporter` (base).
+- **REST**: esqueleto de API (base).
+- **Compat**: _Builders_ (base).
+- **Utils**: `Helpers`.
 
-### Arquivos de Suporte
-- README.md com documentação completa
-- CHANGELOG.md para histórico de versões
-- Arquivos de tradução (.pot)
-- Assets JavaScript e CSS básicos
-- Arquivos de configuração Git
+### Estrutura criada
 
-### Notas Técnicas
-- Compatível com PHP 7.4+ e WordPress 6.x
-- Namespaces organizados seguindo PSR-4
-- Preparado para internacionalização
-- Estrutura modular para fácil manutenção
-- Sem funcionalidades implementadas ainda (apenas stubs)
+- **Core**: Plugin principal, Assets, Versions, Updater, Security, Logger, Hooks.
+- **Database**: `TableClicks`, `Migrations`, `ClickRepository`.
+
+### Arquivos de suporte
+
+- `README.md`, `CHANGELOG.md`, arquivos de tradução `.pot`, JS/CSS básicos e configurações de Git.
+
+### Notas técnicas
+
+- Compatível com **PHP 7.4+** e **WordPress 6.x**; namespaces PSR-4; preparado para i18n; arquitetura modular.
 
 ---
 
-## [Próximas Versões]
+## [Unreleased]
 
-### 1.4.0 (Planejado)
-- Implementação do sistema de banco de dados
-- Criação das tabelas necessárias
-- Sistema de migrações
+### Planejado
 
-### 1.5.0 (Planejado)
-- Funcionalidades de rastreamento no frontend
-- Captura de cliques via JavaScript
-- Sistema AJAX para envio de dados
+- **1.5.0** — Rastreamento no front-end (captura JS) e envio via AJAX.
+- **1.6.0** — Interface administrativa ampliada; relatórios/estatísticas; exportações.
+- **1.7.0** — Integrações com _page builders_; aprimoramentos da API REST; auto-update.
 
-### 1.6.0 (Planejado)
-- Interface administrativa completa
-- Relatórios e estatísticas
-- Sistema de exportação
-
-### 1.7.0 (Planejado)
-- API REST
-- Integrações com page builders
-- Sistema de atualizações automáticas
-
----
-
-**Nota**: Este changelog será atualizado conforme o desenvolvimento do plugin avança.
+[1.4.0]: https://github.com/Kameloth2004/iw8-wa-click-tracker/releases/tag/v1.4.0
+[1.3.0]: https://github.com/Kameloth2004/iw8-wa-click-tracker/releases/tag/v1.3.0
