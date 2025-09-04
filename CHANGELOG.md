@@ -5,6 +5,13 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## 1.4.0 — 2025-09-04
+- **Token novo** `iw8_click_token` com fallback no legado `iw8_wa_domain_token`.
+- **Admin – Configurações**: gerar/rotacionar token, revelar/copiar (com fallback), exportar JSON.
+- **Telefone**: salvamento corrigido via `admin-post` (sem telas brancas) + aviso quando ausente.
+- **REST compat**: wrapper do `permission_callback` em `/iw8-wa/v1/*` para aceitar o token novo.
+- **Headers de serviço**: `X-Service-Version`, rate limit e cursor *forward-only*.
+
 ## [1.3.0] - 2024-01-01
 
 ### Adicionado
