@@ -13,7 +13,19 @@ class TableClicks
     public function __construct()
     {
         global $wpdb;
-        $this->table_name = $wpdb->prefix . 'wa_clicks';
+
+        $new = $wpdb->prefix . 'iw8_wa_clicks';
+        $old = $wpdb->prefix . 'wa_clicks';
+
+        $existsNew = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema = DATABASE() AND table_name = %s",
+                $new
+            )
+        );
+
+        $this->table_name = $existsNew ? $new : $old;
     }
 
     /**

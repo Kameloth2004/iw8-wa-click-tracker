@@ -22,7 +22,28 @@ class ClickRepository
     public function __construct()
     {
         global $wpdb;
-        $this->table = $wpdb->prefix . 'wa_clicks';
+        $this->table = $this->resolveTableName();
+    }
+
+    /** Retorna a tabela preferencial (nova) com fallback para a legada. */
+    private function resolveTableName(): string
+    {
+        global $wpdb;
+        $new = $wpdb->prefix . 'iw8_wa_clicks';
+        $old = $wpdb->prefix . 'wa_clicks';
+        if ($this->tableExists($new)) return $new;
+        if ($this->tableExists($old)) return $old;
+        return $new; // default lógico (mesmo que ainda não exista)
+    }
+
+    /** Verifica existência de tabela. */
+    private function tableExists(string $table): bool
+    {
+        global $wpdb;
+        $like  = $wpdb->esc_like($table);
+        $sql   = "SHOW TABLES LIKE %s";
+        $found = $wpdb->get_var($wpdb->prepare($sql, $like));
+        return is_string($found);
     }
 
     /** Nome da tabela (com prefixo) */
@@ -30,6 +51,21 @@ class ClickRepository
     {
         return $this->table;
     }
+
+    /** A tabela atual possui a coluna informada? */
+    private function hasColumn(string $col): bool
+    {
+        global $wpdb;
+        $sql = $wpdb->prepare("SHOW COLUMNS FROM `{$this->table}` LIKE %s", $col);
+        return (bool) $wpdb->get_var($sql);
+    }
+
+    /** Nome da coluna de data válida na tabela atual. */
+    private function dateColumn(): string
+    {
+        return $this->hasColumn('clicked_at') ? 'clicked_at' : 'created_at';
+    }
+
 
     /**
      * Inserir um clique
@@ -126,42 +162,35 @@ class ClickRepository
         $per_page = isset($opts['per_page']) ? max(1, (int)$opts['per_page']) : 20;
         $offset   = isset($opts['offset']) ? max(0, (int)$opts['offset']) : 0;
 
-        // ORDER por data (desc)
+        $dtCol = $this->dateColumn();
+        $clickedSelect = ($dtCol === 'clicked_at') ? '`clicked_at`' : '`created_at` AS `clicked_at`';
+
         $sql = $wpdb->prepare(
-            "SELECT id, url, page_url, element_tag, element_text, user_id, user_agent, clicked_at
-             FROM {$this->table}
-             ORDER BY clicked_at DESC, id DESC
-             LIMIT %d OFFSET %d",
+            "SELECT id, url, page_url, element_tag, element_text, user_id, user_agent, {$clickedSelect}
+         FROM {$this->table}
+         ORDER BY `{$dtCol}` DESC, id DESC
+         LIMIT %d OFFSET %d",
             $per_page,
             $offset
         );
 
         return $wpdb->get_results($sql);
     }
-
     /**
      * Contagem total
      * @return array{total:int}
      */
+
     public function countTotals($filters = [])
     {
         global $wpdb;
 
-        // Descobre o nome da tabela (compatível com $this->table ou $this->table_name)
-        $table = null;
-        if (property_exists($this, 'table_name') && !empty($this->table_name)) {
-            $table = $this->table_name;
-        } elseif (property_exists($this, 'table') && !empty($this->table)) {
-            $table = $this->table;
-        } else {
-            $table = $wpdb->prefix . 'wa_clicks';
-        }
+        $table = $this->table;             // usar a tabela já resolvida (nova ou legado)
+        $dtCol = $this->dateColumn();      // coluna real de data
 
-        // --- WHERE base (sem datas) para total/7/30 (mantém s e url_regexp)
         $where  = [];
         $params = [];
 
-        // Busca em page_url OU element_text
         if (!empty($filters['s'])) {
             $like = '%' . $wpdb->esc_like($filters['s']) . '%';
             $where[]  = '(page_url LIKE %s OR element_text LIKE %s)';
@@ -169,22 +198,21 @@ class ClickRepository
             $params[] = $like;
         }
 
-        // Regex por URL (gerada a partir do telefone)
         if (!empty($filters['url_regexp'])) {
             $where[]  = 'url REGEXP %s';
             $params[] = $filters['url_regexp'];
         }
 
-        // ---------- TOTAL (respeita from/to quando informados) ----------
+        // ----- TOTAL (respeita from/to quando informados) -----
         $whereTotal  = $where;
         $paramsTotal = $params;
 
         if (!empty($filters['from'])) {
-            $whereTotal[]  = 'clicked_at >= %s';
+            $whereTotal[]  = "`{$dtCol}` >= %s";
             $paramsTotal[] = $filters['from'] . ' 00:00:00';
         }
         if (!empty($filters['to'])) {
-            $whereTotal[]  = 'clicked_at <= %s';
+            $whereTotal[]  = "`{$dtCol}` <= %s";
             $paramsTotal[] = $filters['to'] . ' 23:59:59';
         }
 
@@ -195,24 +223,22 @@ class ClickRepository
         }
         $total = (int) $wpdb->get_var($sqlTotal);
 
-        // ---------- LAST 7 / LAST 30 (janelas corridas; ignoram from/to) ----------
-        $nowTs = current_time('timestamp'); // timezone do WP
+        // ----- LAST 7 / LAST 30 (ignorando from/to) -----
+        $nowTs = current_time('timestamp');
         $dt7   = date('Y-m-d H:i:s', $nowTs - 7  * DAY_IN_SECONDS);
         $dt30  = date('Y-m-d H:i:s', $nowTs - 30 * DAY_IN_SECONDS);
 
-        // last 7 dias (mantém s e url_regexp)
-        $where7  = array_merge($where, ['clicked_at >= %s']);
+        $where7  = array_merge($where, ["`{$dtCol}` >= %s"]);
         $params7 = array_merge($params, [$dt7]);
-        $sql7 = "SELECT COUNT(*) FROM {$table} WHERE 1=1 AND " . implode(' AND ', $where7);
-        $sql7 = $wpdb->prepare($sql7, $params7);
-        $last7 = (int) $wpdb->get_var($sql7);
+        $sql7    = "SELECT COUNT(*) FROM {$table} WHERE 1=1 AND " . implode(' AND ', $where7);
+        $sql7    = $wpdb->prepare($sql7, $params7);
+        $last7   = (int) $wpdb->get_var($sql7);
 
-        // last 30 dias (mantém s e url_regexp)
-        $where30  = array_merge($where, ['clicked_at >= %s']);
+        $where30  = array_merge($where, ["`{$dtCol}` >= %s"]);
         $params30 = array_merge($params, [$dt30]);
-        $sql30 = "SELECT COUNT(*) FROM {$table} WHERE 1=1 AND " . implode(' AND ', $where30);
-        $sql30 = $wpdb->prepare($sql30, $params30);
-        $last30 = (int) $wpdb->get_var($sql30);
+        $sql30    = "SELECT COUNT(*) FROM {$table} WHERE 1=1 AND " . implode(' AND ', $where30);
+        $sql30    = $wpdb->prepare($sql30, $params30);
+        $last30   = (int) $wpdb->get_var($sql30);
 
         return [
             'total'  => $total,

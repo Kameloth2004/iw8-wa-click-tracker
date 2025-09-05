@@ -28,36 +28,91 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// === Composer autoload (precisa vir ANTES de qualquer uso de classes do src/) ===
+/**
+ * Define a versão do plugin como constante global.
+ * Lemos do cabeçalho do próprio arquivo para evitar duplicação manual.
+ * (carregue ESTA definição ANTES de dar require em outros arquivos)
+ */
+if (!defined('IW8_WA_CT_VERSION')) {
+    $data = function_exists('get_file_data')
+        ? get_file_data(__FILE__, ['Version' => 'Version'])
+        : ['Version' => '1.4.0'];
+    define('IW8_WA_CT_VERSION', !empty($data['Version']) ? $data['Version'] : '1.4.0');
+}
+
+/** === Composer autoload (precisa vir ANTES de qualquer uso de classes) === */
 if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     require_once __DIR__ . '/vendor/autoload.php';
 } else {
-    // Log simples para diagnosticar no ambiente Local (Logs > PHP)
+    // Log simples para diagnosticar em ambientes sem vendor/
     if (function_exists('error_log')) {
         error_log('IW8_WA: vendor/autoload.php não encontrado');
     }
 }
 
-// Carrega a camada de segurança (sem depender de autoload PSR-4 do plugin)
-require_once __DIR__ . '/includes/Core/Security.php';
-\IW8\WaClickTracker\Core\Security::init();
+/**
+ * === REQUIRES (case-sensitive, compatível com Linux) ===
+ * Carregue este bloco antes de registrar rotas/menus.
+ * IMPORTANTE:
+ * - Mantemos os controladores/serviços em src/ (você os utiliza para registrar as rotas).
+ * - Mantemos os novos autenticadores/compat em includes/REST.
+ * - Removemos o require legado includes/admin/token-settings.php (causava fatal).
+ */
 
-// === Carregamento direto das classes REST/Security (bypass do Composer no dev local) ===
+/** Núcleo de segurança (não depende de autoload do Composer) */
+if (file_exists(__DIR__ . '/includes/Core/Security.php')) {
+    require_once __DIR__ . '/includes/Core/Security.php';
+    if (class_exists('\IW8\WaClickTracker\Core\Security')) {
+        \IW8\WaClickTracker\Core\Security::init();
+    }
+}
+
+/** === Camada REST/segurança (árvore src/) — utilizada pelos controladores atuais === */
 require_once __DIR__ . '/src/Support/Env.php';
 require_once __DIR__ . '/src/Security/HttpsEnforcer.php';
 require_once __DIR__ . '/src/Security/TokenAuthenticator.php';
+require_once __DIR__ . '/src/Security/RateLimiter.php';
+
 require_once __DIR__ . '/src/Services/TimeProvider.php';
 require_once __DIR__ . '/src/Services/LimitsProvider.php';
-require_once __DIR__ . '/src/Rest/PingController.php';
-require_once __DIR__ . '/src/Rest/ApiRegistrar.php';
+
 require_once __DIR__ . '/src/Http/ErrorFactory.php';
 require_once __DIR__ . '/src/Http/JsonResponse.php';
+
 require_once __DIR__ . '/src/Validation/CursorCodec.php';
 require_once __DIR__ . '/src/Validation/RequestValidator.php';
-require_once __DIR__ . '/src/Rest/ClicksController.php';
+
 require_once __DIR__ . '/src/Repositories/ClickRepository.php';
-require_once __DIR__ . '/includes/install/db-migrations.php';
-require_once __DIR__ . '/src/Security/RateLimiter.php';
+
+require_once __DIR__ . '/src/REST/PingController.php';
+require_once __DIR__ . '/src/REST/ClicksController.php';
+require_once __DIR__ . '/src/REST/ApiRegistrar.php';
+
+/** Migrações/instalação (se existir no projeto) */
+if (file_exists(__DIR__ . '/includes/install/db-migrations.php')) {
+    require_once __DIR__ . '/includes/install/db-migrations.php';
+}
+
+/** === Autenticação REST “nova” (token novo + compat) — OBRIGATÓRIOS ===
+ * Esses arquivos garantem:
+ * - leitura do token novo `iw8_click_token` com fallback no legado;
+ * - cabeçalho X-IW8-Token;
+ * - wrapper de permission_callback para aceitar o novo token nas rotas existentes.
+ */
+require_once __DIR__ . '/includes/REST/TokenAuthenticator.php';
+require_once __DIR__ . '/includes/REST/EnforceAuth.php';
+require_once __DIR__ . '/includes/REST/CompatPermission.php';
+
+/** === Admin (UI + actions) — padrão moderno em includes/Admin (case exato) === */
+require_once __DIR__ . '/includes/Admin/Actions/SavePhoneHandler.php';
+require_once __DIR__ . '/includes/Admin/Actions/TokenHandlers.php';
+require_once __DIR__ . '/includes/Admin/Pages/SettingsPage.php';
+
+/**
+ * LEGADOS REMOVIDOS (evitam fatal em Linux e duplicidade de UI):
+ * - includes/admin/token-settings.php
+ * - src/Rest/* (caminho com case errado)
+ */
 
 // Roda ao ativar
 register_activation_hook(__FILE__, 'iw8_wa_run_migrations');
@@ -107,8 +162,11 @@ if (class_exists(\YahnisElsts\PluginUpdateChecker\v5\PucFactory::class)) {
 
     $iw8_wa_update_checker->setBranch('main');
 
+    // Alguns “linters” não conhecem o tipo do getVcsApi(); em runtime o método existe para GitHub.
+    // Protegemos com method_exists para evitar avisos/erros em IDE e em eventuais outros provedores VCS.
     $api = $iw8_wa_update_checker->getVcsApi();
-    if ($api !== null) {
+    /** @phpstan-ignore-next-line */
+    if (is_object($api) && method_exists($api, 'enableReleaseAssets')) {
         $api->enableReleaseAssets();
     }
 }

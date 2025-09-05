@@ -36,9 +36,23 @@ final class CsvExporter
 
         global $wpdb;
         /** @var \wpdb $wpdb */
-        $table = $wpdb->prefix . 'wa_clicks';
+        $new = $wpdb->prefix . 'iw8_wa_clicks';
+        $old = $wpdb->prefix . 'wa_clicks';
 
-        // Colunas exportadas (ordem fixa)
+        // Prefere a tabela nova; se não existir, cai na legada
+        $existsNew = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*) FROM information_schema.tables
+         WHERE table_schema = DATABASE() AND table_name = %s",
+                $new
+            )
+        );
+        $table = $existsNew ? $new : $old;
+
+        // Coluna de data real presente na tabela
+        $dtCol = $existsNew ? 'clicked_at' : 'created_at';
+
+        // Colunas exportadas (ordem fixa no CSV)
         $columns = [
             'id',
             'url',
@@ -46,10 +60,10 @@ final class CsvExporter
             'element_tag',
             'element_text',
             'user_agent',
-            'clicked_at',
+            'clicked_at', // sempre presente na saída (alias no legado)
         ];
 
-        // Cabeçalhos do CSV (altere rótulos se quiser)
+        // Cabeçalhos do CSV (rótulos)
         $headers = [
             'ID',
             'URL',
@@ -64,6 +78,7 @@ final class CsvExporter
         $where  = 'WHERE 1=1';
         $params = [];
 
+        // Filtros
         $dateFrom = isset($filters['date_from']) ? (string)$filters['date_from'] : '';
         $dateTo   = isset($filters['date_to'])   ? (string)$filters['date_to']   : '';
         $pageUrl  = isset($filters['page_url'])  ? (string)$filters['page_url']  : '';
@@ -71,38 +86,56 @@ final class CsvExporter
         $userId   = isset($filters['user_id'])   ? (int)$filters['user_id']      : 0;
 
         if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
-            $where   .= ' AND clicked_at >= %s';
+            $where   .= " AND `{$dtCol}` >= %s";
             $params[] = $dateFrom . ' 00:00:00';
         }
         if ($dateTo !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
-            $where   .= ' AND clicked_at <= %s';
+            $where   .= " AND `{$dtCol}` <= %s";
             $params[] = $dateTo . ' 23:59:59';
         }
         if ($pageUrl !== '') {
-            $where   .= ' AND page_url LIKE %s';
+            $where   .= ' AND `page_url` LIKE %s';
             $params[] = $wpdb->esc_like($pageUrl) . '%';
         }
         if ($tag !== '') {
-            $where   .= ' AND element_tag = %s';
+            $where   .= ' AND `element_tag` = %s';
             $params[] = $tag;
         }
         if ($userId > 0) {
-            $where   .= ' AND user_id = %d';
+            $where   .= ' AND `user_id` = %d';
             $params[] = $userId;
         }
 
+        // Limite seguro
         $limit = isset($filters['limit']) ? (int)$filters['limit'] : 1000;
-        if ($limit < 1) {
-            $limit = 1;
-        }
-        if ($limit > 5000) {
-            $limit = 5000;
-        }
+        if ($limit < 1)   $limit = 1;
+        if ($limit > 5000) $limit = 5000;
 
         $order = (isset($filters['order']) && strtolower((string)$filters['order']) === 'asc') ? 'ASC' : 'DESC';
 
-        $select = implode(',', array_map(static fn(string $c) => "`$c`", $columns));
-        $sql    = "SELECT {$select} FROM `{$table}` {$where} ORDER BY clicked_at {$order} LIMIT %d";
+        // SELECT com alias para clicked_at quando necessário
+        $clickedSelect = $existsNew ? "`clicked_at`" : "`created_at` AS `clicked_at`";
+
+        // Monta a lista de colunas reais (mapeando clicked_at para o alias acima)
+        $selectPieces = [
+            '`id`',
+            '`url`',
+            '`page_url`',
+            '`element_tag`',
+            '`element_text`',
+            '`user_agent`',
+            $clickedSelect,
+        ];
+        $select = implode(', ', $selectPieces);
+
+        // Consulta única que gera o CSV
+        $sql = "
+    SELECT {$select}
+    FROM `{$table}`
+    {$where}
+    ORDER BY `{$dtCol}` {$order}, `id` {$order}
+    LIMIT %d
+";
         $params[] = $limit;
 
         $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
