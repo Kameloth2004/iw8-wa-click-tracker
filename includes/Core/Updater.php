@@ -1,170 +1,170 @@
 <?php
+
 /**
- * Classe para gerenciar atualizações automáticas via GitHub
+ * Gerencia atualizações automáticas via GitHub (Plugin Update Checker)
  *
  * @package IW8_WaClickTracker\Core
- * @version 1.3.0
+ * @version 1.4.1
  */
+
+declare(strict_types=1);
 
 namespace IW8\WaClickTracker\Core;
 
-// Prevenir acesso direto
 if (!defined('ABSPATH')) {
     exit;
 }
 
-/**
- * Classe Updater
- */
-class Updater
+final class Updater
 {
-    /**
-     * Construtor da classe
-     */
-    public function __construct()
-    {
-        // Classe utilitária, não requer inicialização
-    }
+    /** @var bool Evita inicialização dupla */
+    private static $booted = false;
+
+    /** @var object|null Instância do UpdateChecker */
+    private static $checker = null;
 
     /**
-     * Inicializar o sistema de atualizações
+     * Inicializa o Update Checker (idempotente).
+     * Chame uma única vez, por exemplo no arquivo principal:
      *
-     * @return void
+     *   add_action('admin_init', ['IW8\WaClickTracker\Core\Updater', 'init']);
      */
-    public function init()
+    public static function init(): void
     {
-        // Verificar se Plugin Update Checker está disponível
-        if (!$this->isPucAvailable()) {
+        if (self::$booted) {
             return;
         }
+        self::$booted = true;
 
         try {
-            $this->setupUpdateChecker();
-        } catch (\Exception $e) {
-            // Log do erro (sem poluir)
+            if (!self::loadPuc()) {
+                // Não fatal: apenas não inicializa updates
+                if (function_exists('error_log')) {
+                    error_log('IW8_WA Updater: PUC não disponível, updates desativados.');
+                }
+                return;
+            }
+
+            // Descobre o arquivo principal do plugin com segurança
+            $pluginFile = defined('IW8_WA_CLICK_TRACKER_PLUGIN_FILE')
+                ? IW8_WA_CLICK_TRACKER_PLUGIN_FILE
+                : (defined('IW8_WA_CLICK_TRACKER_PLUGIN_DIR')
+                    ? IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'iw8-wa-click-tracker.php'
+                    : null);
+
+            if (!is_string($pluginFile) || $pluginFile === '' || !file_exists($pluginFile)) {
+                if (function_exists('error_log')) {
+                    error_log('IW8_WA Updater: plugin file não encontrado para calcular slug.');
+                }
+                return;
+            }
+
+            // Slug correto SEMPRE via plugin_basename (evita erro de slug duplicado)
+            $slug = plugin_basename($pluginFile); // ex: "iw8-wa-click-tracker/iw8-wa-click-tracker.php"
+
+            // Monte o checker apontando para o repositório GitHub (PUC lida com tags/releases)
+            self::$checker = \Puc_v5_Factory::buildUpdateChecker(
+                'https://github.com/Kameloth2004/iw8-wa-click-tracker',
+                $pluginFile,
+                $slug
+            );
+
+            // Branch padrão
+            if (method_exists(self::$checker, 'setBranch')) {
+                self::$checker->setBranch('main');
+            }
+
+            // Usar assets de release (ZIP anexado nas Releases do GitHub)
+            if (method_exists(self::$checker, 'getVcsApi') && self::$checker->getVcsApi()) {
+                self::$checker->getVcsApi()->enableReleaseAssets();
+            }
+
+            // Autenticação opcional (se usar repo privado ou limitar rate-limit)
+            self::maybeConfigureAuth(self::$checker);
+
             if (function_exists('error_log')) {
-                error_log('IW8 WaClickTracker Updater Error: ' . $e->getMessage());
+                error_log('IW8_WA Updater: Update checker inicializado com sucesso.');
+            }
+        } catch (\Throwable $e) {
+            if (function_exists('error_log')) {
+                error_log('IW8_WA Updater ERROR: ' . $e->getMessage());
             }
         }
     }
 
     /**
-     * Verificar se Plugin Update Checker está disponível
-     *
-     * @return bool
+     * Carrega o Plugin Update Checker v5.6.
+     * Tenta primeiro via Composer (vendor/), depois fallback para pasta legada.
      */
-    private function isPucAvailable()
+    private static function loadPuc(): bool
     {
-        // Verificar se a pasta plugin-update-checker existe
-        $puc_path = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'plugin-update-checker/';
-        if (!is_dir($puc_path)) {
-            return false;
+        // Já disponível?
+        if (class_exists('\Puc_v5_Factory')) {
+            return true;
         }
 
-        // Verificar se a classe principal existe
-        if (!class_exists('\Puc_v4_Factory')) {
-            // Tentar carregar o autoloader
-            $autoloader = $puc_path . 'plugin-update-checker.php';
-            if (file_exists($autoloader)) {
-                require_once $autoloader;
+        // 1) Tentar via vendor (Composer)
+        if (defined('IW8_WA_CLICK_TRACKER_PLUGIN_DIR')) {
+            $vendorLoader = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'vendor/yahnis-elsts/plugin-update-checker/load-v5p6.php';
+            if (is_readable($vendorLoader)) {
+                require_once $vendorLoader;
+            }
+            if (class_exists('\Puc_v5_Factory')) {
+                return true;
             }
         }
 
-        return class_exists('\Puc_v4_Factory');
+        // 2) Fallback legado (se você mantiver a pasta antiga)
+        if (defined('IW8_WA_CLICK_TRACKER_PLUGIN_DIR')) {
+            $legacy1 = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'plugin-update-checker/load-v5p6.php';
+            $legacy2 = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'plugin-update-checker/plugin-update-checker.php';
+            if (is_readable($legacy1)) {
+                require_once $legacy1;
+            } elseif (is_readable($legacy2)) {
+                require_once $legacy2;
+            }
+        }
+
+        return class_exists('\Puc_v5_Factory');
     }
 
     /**
-     * Configurar o update checker
-     *
-     * @return void
+     * Define autenticação no checker se um token estiver disponível.
+     * Suporta constante, env var ou option do WP.
      */
-    private function setupUpdateChecker()
+    private static function maybeConfigureAuth($checker): void
     {
-        // Verificar se a classe existe após tentar carregar
-        if (!class_exists('\Puc_v4_Factory')) {
-            throw new \Exception('Plugin Update Checker não pôde ser carregado');
-        }
-
-        // Criar instância do update checker
-        $updateChecker = \Puc_v4_Factory::buildUpdateChecker(
-            'https://github.com/Kameloth2004/iw8-wa-click-tracker',
-            IW8_WA_CLICK_TRACKER_PLUGIN_FILE,
-            'iw8-wa-click-tracker'
-        );
-
-        // Configurar branch principal
-        $updateChecker->setBranch('main');
-
-        // Habilitar assets de release
-        $updateChecker->getVcsApi()->enableReleaseAssets();
-
-        // Configurar autenticação se token estiver disponível
-        $this->setupAuthentication($updateChecker);
-
-        // Log de sucesso (opcional)
-        if (function_exists('error_log')) {
-            error_log('IW8 WaClickTracker: Update checker configurado com sucesso');
-        }
-    }
-
-    /**
-     * Configurar autenticação se token estiver disponível
-     *
-     * @param object $updateChecker Instância do update checker
-     * @return void
-     */
-    private function setupAuthentication($updateChecker)
-    {
-        // Verificar se há token definido como constante
-        if (defined('IW8_WA_GH_TOKEN') && !empty(IW8_WA_GH_TOKEN)) {
-            $updateChecker->setAuthentication(IW8_WA_GH_TOKEN);
+        // Constante
+        if (defined('IW8_WA_GH_TOKEN') && is_string(IW8_WA_GH_TOKEN) && IW8_WA_GH_TOKEN !== '') {
+            if (method_exists($checker, 'setAuthentication')) {
+                $checker->setAuthentication(IW8_WA_GH_TOKEN);
+            }
             return;
         }
 
-        // Verificar se há token em variável de ambiente
-        $env_token = getenv('IW8_WA_GH_TOKEN');
-        if (!empty($env_token)) {
-            $updateChecker->setAuthentication($env_token);
+        // Variável de ambiente
+        $envToken = getenv('IW8_WA_GH_TOKEN');
+        if (is_string($envToken) && $envToken !== '') {
+            if (method_exists($checker, 'setAuthentication')) {
+                $checker->setAuthentication($envToken);
+            }
             return;
         }
 
-        // Verificar se há token em opção do WordPress (para casos especiais)
-        $option_token = get_option('iw8_wa_gh_token', '');
-        if (!empty($option_token)) {
-            $updateChecker->setAuthentication($option_token);
-            return;
+        // Option do WP (casos especiais)
+        if (function_exists('get_option')) {
+            $optToken = (string) get_option('iw8_wa_gh_token', '');
+            if ($optToken !== '' && method_exists($checker, 'setAuthentication')) {
+                $checker->setAuthentication($optToken);
+            }
         }
     }
 
     /**
-     * Verificar se há atualizações disponíveis
-     *
-     * @return bool
+     * (Opcional) Expor checker para depuração.
      */
-    public function hasUpdates()
+    public static function getChecker()
     {
-        if (!$this->isPucAvailable()) {
-            return false;
-        }
-
-        // Esta verificação é feita automaticamente pelo PUC
-        // Retornamos false para não interferir no fluxo padrão
-        return false;
-    }
-
-    /**
-     * Obter informações sobre atualizações
-     *
-     * @return array|false
-     */
-    public function getUpdateInfo()
-    {
-        if (!$this->isPucAvailable()) {
-            return false;
-        }
-
-        // O PUC gerencia isso automaticamente
-        // Retornamos false para não interferir
-        return false;
+        return self::$checker;
     }
 }

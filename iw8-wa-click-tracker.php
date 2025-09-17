@@ -4,7 +4,7 @@
  * Plugin Name: IW8 – Rastreador de Cliques WhatsApp
  * Plugin URI: https://github.com/iw8/iw8-wa-click-tracker
  * Description: Plugin para rastrear cliques em links do WhatsApp e gerar relatórios detalhados
- * Version:  1.4.0
+ * Version: 1.4.1
  * Requires at least: 6.0
  * Tested up to: 6.4
  * Requires PHP: 7.4
@@ -18,124 +18,111 @@
  * Network: false
  *
  * @package IW8_WaClickTracker
- * @version 1.3.0
- * @author Adriano Marques
- * @license GPL v2 or later
  */
 
-// Prevenir acesso direto
+// Bloqueia acesso direto.
 if (!defined('ABSPATH')) {
     exit;
 }
 
 /**
- * Define a versão do plugin como constante global.
- * Lemos do cabeçalho do próprio arquivo para evitar duplicação manual.
- * (carregue ESTA definição ANTES de dar require em outros arquivos)
+ * === Versão do plugin (lida do cabeçalho) ===
+ * Define IW8_WA_CT_VERSION para reuso.
  */
 if (!defined('IW8_WA_CT_VERSION')) {
     $data = function_exists('get_file_data')
         ? get_file_data(__FILE__, ['Version' => 'Version'])
-        : ['Version' => '1.4.0'];
-    define('IW8_WA_CT_VERSION', !empty($data['Version']) ? $data['Version'] : '1.4.0');
+        : ['Version' => '1.4.1'];
+    define('IW8_WA_CT_VERSION', !empty($data['Version']) ? $data['Version'] : '1.4.1');
 }
 
-/** === Composer autoload (precisa vir ANTES de qualquer uso de classes) === */
-if (file_exists(__DIR__ . '/vendor/autoload.php')) {
-    require_once __DIR__ . '/vendor/autoload.php';
+/** === Constantes base do plugin === */
+if (!defined('IW8_WA_CLICK_TRACKER_PLUGIN_FILE')) {
+    define('IW8_WA_CLICK_TRACKER_PLUGIN_FILE', __FILE__);
+}
+if (!defined('IW8_WA_CLICK_TRACKER_PLUGIN_DIR')) {
+    define('IW8_WA_CLICK_TRACKER_PLUGIN_DIR', plugin_dir_path(__FILE__));
+}
+if (!defined('IW8_WA_CLICK_TRACKER_PLUGIN_URL')) {
+    define('IW8_WA_CLICK_TRACKER_PLUGIN_URL', plugin_dir_url(__FILE__));
+}
+if (!defined('IW8_WA_CLICK_TRACKER_PLUGIN_BASENAME')) {
+    define('IW8_WA_CLICK_TRACKER_PLUGIN_BASENAME', plugin_basename(__FILE__));
+}
+if (!defined('IW8_WA_CLICK_TRACKER_TEXT_DOMAIN')) {
+    define('IW8_WA_CLICK_TRACKER_TEXT_DOMAIN', 'iw8-wa-click-tracker');
+}
+if (!defined('IW8_WA_DB_VERSION')) {
+    define('IW8_WA_DB_VERSION', '1.1');
+}
+if (!defined('IW8_WA_CLICK_TRACKER_VERSION')) {
+    // Mantém compat com código antigo que usa este nome.
+    define('IW8_WA_CLICK_TRACKER_VERSION', IW8_WA_CT_VERSION);
+}
+
+/** === Autoload do Composer (precisa vir antes do uso de classes em src/) === */
+$__vendorAutoload = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'vendor/autoload.php';
+if (is_readable($__vendorAutoload)) {
+    require_once $__vendorAutoload;
 } else {
-    // Log simples para diagnosticar em ambientes sem vendor/
     if (function_exists('error_log')) {
         error_log('IW8_WA: vendor/autoload.php não encontrado');
     }
 }
 
-/**
- * === REQUIRES (case-sensitive, compatível com Linux) ===
- * Carregue este bloco antes de registrar rotas/menus.
- * IMPORTANTE:
- * - Mantemos os controladores/serviços em src/ (você os utiliza para registrar as rotas).
- * - Mantemos os novos autenticadores/compat em includes/REST.
- * - Removemos o require legado includes/admin/token-settings.php (causava fatal).
- */
+/** === Autoload/arquivos “includes/” legados (usados por migrações/DB/Admin) === */
+$__includesAutoload = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/autoload.php';
+if (is_readable($__includesAutoload)) {
+    require_once $__includesAutoload;
+}
 
-/** Núcleo de segurança (não depende de autoload do Composer) */
-if (file_exists(__DIR__ . '/includes/Core/Security.php')) {
-    require_once __DIR__ . '/includes/Core/Security.php';
+/** Núcleo de segurança (arquivo sem PSR-4) */
+$__securityFile = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/Core/Security.php';
+if (is_readable($__securityFile)) {
+    require_once $__securityFile;
     if (class_exists('\IW8\WaClickTracker\Core\Security')) {
         \IW8\WaClickTracker\Core\Security::init();
     }
 }
 
-/** === Camada REST/segurança (árvore src/) — utilizada pelos controladores atuais === */
-require_once __DIR__ . '/src/Support/Env.php';
-require_once __DIR__ . '/src/Security/HttpsEnforcer.php';
-require_once __DIR__ . '/src/Security/TokenAuthenticator.php';
-require_once __DIR__ . '/src/Security/RateLimiter.php';
-
-require_once __DIR__ . '/src/Services/TimeProvider.php';
-require_once __DIR__ . '/src/Services/LimitsProvider.php';
-
-require_once __DIR__ . '/src/Http/ErrorFactory.php';
-require_once __DIR__ . '/src/Http/JsonResponse.php';
-
-require_once __DIR__ . '/src/Validation/CursorCodec.php';
-require_once __DIR__ . '/src/Validation/RequestValidator.php';
-
-require_once __DIR__ . '/src/Repositories/ClickRepository.php';
-
-require_once __DIR__ . '/src/REST/PingController.php';
-require_once __DIR__ . '/src/REST/ClicksController.php';
-require_once __DIR__ . '/src/REST/ApiRegistrar.php';
-
-/** Migrações/instalação (se existir no projeto) */
-if (file_exists(__DIR__ . '/includes/install/db-migrations.php')) {
-    require_once __DIR__ . '/includes/install/db-migrations.php';
+/** Migrações (dbDelta) */
+$__migrationsFile = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/install/db-migrations.php';
+if (is_readable($__migrationsFile)) {
+    require_once $__migrationsFile; // define iw8_wa_run_migrations()
 }
 
-/** === Autenticação REST “nova” (token novo + compat) — OBRIGATÓRIOS ===
- * Esses arquivos garantem:
- * - leitura do token novo `iw8_click_token` com fallback no legado;
- * - cabeçalho X-IW8-Token;
- * - wrapper de permission_callback para aceitar o novo token nas rotas existentes.
- */
-require_once __DIR__ . '/includes/REST/TokenAuthenticator.php';
-require_once __DIR__ . '/includes/REST/EnforceAuth.php';
-require_once __DIR__ . '/includes/REST/CompatPermission.php';
-
-/** === Admin (UI + actions) — padrão moderno em includes/Admin (case exato) === */
-require_once __DIR__ . '/includes/Admin/Actions/SavePhoneHandler.php';
-require_once __DIR__ . '/includes/Admin/Actions/TokenHandlers.php';
-require_once __DIR__ . '/includes/Admin/Pages/SettingsPage.php';
-
-/**
- * LEGADOS REMOVIDOS (evitam fatal em Linux e duplicidade de UI):
- * - includes/admin/token-settings.php
- * - src/Rest/* (caminho com case errado)
- */
-
-// Roda ao ativar
-register_activation_hook(__FILE__, 'iw8_wa_run_migrations');
-
-// Roda se a versão de DB estiver desatualizada
-add_action('admin_init', function () {
-    $cur = get_option('iw8_wa_db_version');
-    if ($cur !== IW8_WA_DB_VERSION) {
-        iw8_wa_run_migrations();
+/** Admin UI (arquivos não-PSR-4) */
+$__adminFiles = [
+    'includes/Admin/Actions/SavePhoneHandler.php',
+    'includes/Admin/Actions/TokenHandlers.php',
+    'includes/Admin/Pages/SettingsPage.php',
+];
+foreach ($__adminFiles as $__file) {
+    $__full = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . $__file;
+    if (is_readable($__full)) {
+        require_once $__full;
     }
-});
+}
 
+/** === Updater centralizado (evita slug duplicado) === */
+$__updaterFile = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/Core/Updater.php';
+if (is_readable($__updaterFile)) {
+    require_once $__updaterFile;
+    if (class_exists('\IW8\WaClickTracker\Core\Updater')) {
+        // Apenas no admin inicializamos PUC; Updater::init é idempotente.
+        add_action('admin_init', ['IW8\WaClickTracker\Core\Updater', 'init']);
+    }
+}
 
-// === Registra as rotas REST no init do WP REST ===
+/** === Rotas REST (registradas via autoload PSR-4 em src/Rest/*) === */
 add_action('rest_api_init', function () {
-    // Se por algum motivo o autoload não carregou, registramos o log e abortamos
+    // Só tenta registrar se a classe PSR-4 estiver disponível:
     if (!class_exists(\IW8\WA\Rest\ApiRegistrar::class)) {
         if (function_exists('error_log')) {
             error_log('IW8_WA REST: ApiRegistrar não encontrado no autoload');
         }
         return;
     }
-
     $registrar = new \IW8\WA\Rest\ApiRegistrar();
     $registrar->register();
 
@@ -144,341 +131,203 @@ add_action('rest_api_init', function () {
     }
 });
 
-// === Auto-update via GitHub (PUC v5) – Bootstrap ===
-
-// 2.1) Carregar autoloader do Composer
-$iw8_wa_click_tracker_autoload = __DIR__ . '/vendor/autoload.php';
-if (file_exists($iw8_wa_click_tracker_autoload)) {
-    require_once $iw8_wa_click_tracker_autoload;
-}
-
-// 2.2) Registrar o update checker
-if (class_exists(\YahnisElsts\PluginUpdateChecker\v5\PucFactory::class)) {
-    $iw8_wa_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
-        'https://github.com/kameloth2004/iw8-wa-click-tracker',
-        __FILE__,
-        'iw8-wa-click-tracker'
-    );
-
-    $iw8_wa_update_checker->setBranch('main');
-
-    // Alguns “linters” não conhecem o tipo do getVcsApi(); em runtime o método existe para GitHub.
-    // Protegemos com method_exists para evitar avisos/erros em IDE e em eventuais outros provedores VCS.
-    $api = $iw8_wa_update_checker->getVcsApi();
-    /** @phpstan-ignore-next-line */
-    if (is_object($api) && method_exists($api, 'enableReleaseAssets')) {
-        $api->enableReleaseAssets();
+/** === Checagem de versão do schema (roda em admin) === */
+add_action('admin_init', function () {
+    if (!function_exists('get_option')) {
+        return;
     }
-}
+    $cur = get_option('iw8_wa_db_version');
+    if ($cur !== IW8_WA_DB_VERSION && function_exists('iw8_wa_run_migrations')) {
+        iw8_wa_run_migrations();
+    }
+});
 
-// Definir constantes do plugin
-define('IW8_WA_CLICK_TRACKER_VERSION', '1.4.0');
-define('IW8_WA_CLICK_TRACKER_PLUGIN_SLUG', 'iw8-wa-click-tracker');
-define('IW8_WA_CLICK_TRACKER_PLUGIN_FILE', __FILE__);
-define('IW8_WA_CLICK_TRACKER_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('IW8_WA_CLICK_TRACKER_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('IW8_WA_CLICK_TRACKER_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('IW8_WA_CLICK_TRACKER_TEXT_DOMAIN', 'iw8-wa-click-tracker');
-define('IW8_WA_DB_VERSION', '1.1');
-
-// Carregar autoloader
-require_once IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/autoload.php';
-
+/** === Export CSV (handler admin) === */
 add_action('init', static function () {
-    if (is_admin()) {
+    if (is_admin() && class_exists('\IW8\WaClickTracker\Admin\Actions\ExportCsvHandler')) {
         \IW8\WaClickTracker\Admin\Actions\ExportCsvHandler::register();
     }
 }, 5);
 
-// Hook de ativação
-function iw8_wa_click_tracker_activate()
+/** === Requisitos mínimos (PHP/WP) === */
+function iw8_wa_click_tracker_check_requirements(): bool
 {
-    // Função de logging de fallback para erros fatais (ANTES de qualquer dependência)
-    $log_activation = function ($message, $is_error = false) {
-        $prefix = $is_error ? 'ERROR' : 'INFO';
-        $timestamp = function_exists('current_time') ? current_time('Y-m-d H:i:s') : date('Y-m-d H:i:s');
-        $log_message = sprintf(
-            '[%s] [IW8_WA_CLICK_TRACKER] %s: %s',
-            $timestamp,
-            $prefix,
-            $message
-        );
-
-        // SEMPRE logar via error_log primeiro (garantia absoluta)
-        if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
-            error_log($log_message);
-        }
-
-        // Tentar usar a classe Logger se disponível (opcional)
-        if (class_exists('\IW8\WaClickTracker\Core\Logger')) {
-            try {
-                if ($is_error) {
-                    \IW8\WaClickTracker\Core\Logger::activationError($message);
-                } else {
-                    \IW8\WaClickTracker\Core\Logger::activation($message);
-                }
-            } catch (Exception $logger_error) {
-                // Se Logger falhar, continuar com error_log
-                if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
-                    error_log('IW8_WA_CLICK_TRACKER FILE WRITE ERROR: ' . $logger_error->getMessage());
-                }
-            }
-        }
-
-        // Tentar escrever no arquivo de log diretamente (fallback adicional)
-        try {
-            $logs_dir = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'logs/';
-            $log_file = $logs_dir . 'plugin.log';
-
-            if (is_dir($logs_dir) && is_writable($logs_dir)) {
-                $formatted_message = $log_message . "\n";
-                file_put_contents($log_file, $formatted_message, FILE_APPEND | LOCK_EX);
-            }
-        } catch (Exception $file_error) {
-            // Se escrita em arquivo falhar, pelo menos error_log funcionou
-            if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
-                error_log('IW8_WA_CLICK_TRACKER FATAL ERROR: ' . $file_error->getMessage());
-            }
-        }
-    };
-
-    try {
-        // Log de início da ativação (IMEDIATO, sem dependências)
-        $log_activation('Iniciando ativação do plugin');
-
-        // Verificar se autoloader existe
-        if (!file_exists(IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/autoload.php')) {
-            throw new Exception('Autoloader não encontrado: ' . IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/autoload.php');
-        }
-
-        // Verificar se diretório includes existe
-        if (!is_dir(IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/')) {
-            throw new Exception('Diretório includes não encontrado');
-        }
-
-        // Verificar permissões de escrita para logs
-        $logs_dir = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'logs/';
-        if (!is_dir($logs_dir)) {
-            if (!wp_mkdir_p($logs_dir)) {
-                $log_activation('Aviso: Não foi possível criar diretório de logs', true);
-            }
-        }
-
-        if (is_dir($logs_dir) && !is_writable($logs_dir)) {
-            $log_activation('Aviso: Diretório de logs não tem permissão de escrita', true);
-        }
-
-        // Carregar autoloader (redundante se já carregado no topo, mas inofensivo por ser require_once)
-        require_once IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/autoload.php';
-        $log_activation('Autoloader carregado com sucesso');
-
-        // Verificar se classes essenciais existem
-        $essential_classes = [
-            '\IW8\WaClickTracker\Database\TableClicks',
-            '\IW8\WaClickTracker\Core\Versions',
-            '\IW8\WaClickTracker\Core\Logger',
-        ];
-
-        foreach ($essential_classes as $class) {
-            if (!class_exists($class)) {
-                throw new Exception("Classe essencial não encontrada: {$class}");
-            }
-        }
-
-        $log_activation('Todas as classes essenciais carregadas');
-
-        // Criar tabela de cliques
-        $table_clicks = new \IW8\WaClickTracker\Database\TableClicks();
-        $table_created = $table_clicks->create_table();
-
-        if (!$table_created) {
-            throw new Exception('Falha ao criar tabela na ativação');
-        }
-
-        $log_activation('Tabela criada com sucesso');
-
-        // Atualizar versão do schema
-        update_option('iw8_wa_db_version', IW8_WA_DB_VERSION);
-
-        // Executar upgrades de versão
-        $versions = new \IW8\WaClickTracker\Core\Versions();
-        $versions->maybe_upgrade();
-
-        $log_activation('Upgrades de versão executados');
-
-        // Verificar se tabela foi realmente criada
-        global $wpdb;
-        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$wpdb->prefix}wa_clicks'");
-        if (!$table_exists) {
-            throw new Exception('Tabela não foi criada no banco de dados');
-        }
-
-        $log_activation('Verificação de tabela no banco: OK');
-
-        // Testar inserção de registro
-        $test_data = [
-            'url'          => 'https://api.whatsapp.com/send?phone=1234567890&text=test',
-            'page_url'     => home_url('/'),
-            'element_tag'  => 'ACTIVATION_TEST',
-            'element_text' => 'Teste de ativação',
-            'user_agent'   => 'WP-Plugin-Activation',
-            'clicked_at'   => current_time('mysql'),
-        ];
-
-        $repository  = new \IW8\WaClickTracker\Database\ClickRepository();
-        $test_result = $repository->insertClick($test_data);
-
-        if (is_wp_error($test_result)) {
-            throw new Exception('Falha no teste de inserção: ' . $test_result->get_error_message());
-        }
-
-        $log_activation('Teste de inserção: OK (ID: ' . $test_result . ')');
-
-        // Limpar registro de teste
-        $wpdb->delete($wpdb->prefix . 'wa_clicks', ['id' => $test_result]);
-
-        $log_activation('Plugin ativado com sucesso - todos os testes passaram');
-    } catch (Exception $e) {
-        $error_context = [
-            'file'                 => $e->getFile(),
-            'line'                 => $e->getLine(),
-            'trace'                => $e->getTraceAsString(),
-            'php_version'          => PHP_VERSION,
-            'wp_version'           => function_exists('get_bloginfo') ? get_bloginfo('version') : 'N/A',
-            'plugin_dir'           => IW8_WA_CLICK_TRACKER_PLUGIN_DIR,
-            'plugin_dir_writable'  => is_writable(IW8_WA_CLICK_TRACKER_PLUGIN_DIR),
-            'wpdb_prefix'          => isset($wpdb) ? $wpdb->prefix : 'N/A',
-            'memory_limit'         => ini_get('memory_limit'),
-            'max_execution_time'   => ini_get('max_execution_time'),
-        ];
-
-        $log_activation('ERRO FATAL na ativação: ' . $e->getMessage(), true);
-        $log_activation('Contexto do erro: ' . json_encode($error_context), true);
-
-        // Log adicional via error_log para garantir (múltiplas camadas)
-        if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER FATAL ERROR: ' . $e->getMessage());
-        }
-        if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
-            error_log('IW8_WA_CLICKTRACKER ERROR CONTEXT: ' . json_encode($error_context));
-        }
-
-        // Re-throw para WordPress mostrar erro na interface
-        throw $e;
-    }
-}
-
-// Registrar hook de ativação
-register_activation_hook(__FILE__, 'iw8_wa_click_tracker_activate');
-
-// Hook de desinstalação
-function iw8_wa_click_tracker_uninstall()
-{
-    // Verificar se é uma desinstalação real
-    if (!defined('WP_UNINSTALL_PLUGIN')) {
-        exit;
-    }
-
-    // Verificar permissões
-    if (!current_user_can('activate_plugins')) {
-        return;
-    }
-
-    // Log da desinstalação
-    if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
-        error_log('IW8_WA_CLICK_TRACKER: Plugin sendo desinstalado');
-    }
-
-    // TODO: Implementar lógica de desinstalação
-    // - Remover opções do banco
-    // - Manter tabelas por padrão (configurável)
-    // - Limpar arquivos temporários se necessário
-}
-
-// Registrar hook de desinstalação com função nomeada
-register_uninstall_hook(__FILE__, 'iw8_wa_click_tracker_uninstall');
-
-// Função para verificar requisitos mínimos
-function iw8_wa_click_tracker_check_requirements()
-{
-    // Verificar requisitos mínimos
     if (version_compare(PHP_VERSION, '7.4', '<')) {
         add_action('admin_notices', 'iw8_wa_click_tracker_php_version_notice');
         return false;
     }
-
     if (version_compare(get_bloginfo('version'), '6.0', '<')) {
         add_action('admin_notices', 'iw8_wa_click_tracker_wp_version_notice');
         return false;
     }
-
     return true;
 }
-
-// Função para notice de versão PHP
 function iw8_wa_click_tracker_php_version_notice()
 {
     echo '<div class="notice notice-error"><p>';
     echo sprintf(
-        __('IW8 – Rastreador de Cliques WhatsApp requer PHP 7.4 ou superior. Sua versão atual é %s.', 'iw8-wa-click-tracker'),
-        PHP_VERSION
+        esc_html__('IW8 – Rastreador de Cliques WhatsApp requer PHP 7.4 ou superior. Sua versão atual é %s.', 'iw8-wa-click-tracker'),
+        esc_html(PHP_VERSION)
     );
     echo '</p></div>';
 }
-
-// Função para notice de versão WordPress
 function iw8_wa_click_tracker_wp_version_notice()
 {
     echo '<div class="notice notice-error"><p>';
-    echo __('IW8 – Rastreador de Cliques WhatsApp requer WordPress 6.0 ou superior.', 'iw8-wa-click-tracker');
+    echo esc_html__('IW8 – Rastreador de Cliques WhatsApp requer WordPress 6.0 ou superior.', 'iw8-wa-click-tracker');
     echo '</p></div>';
 }
 
-// Função para inicializar o plugin
+/** === Inicialização principal quando WP estiver pronto === */
 function iw8_wa_click_tracker_init()
 {
-    // Verificar se o WordPress está completamente carregado
-    if (!function_exists('add_action') || !function_exists('current_user_can') || !function_exists('get_option')) {
+    if (!iw8_wa_click_tracker_check_requirements()) {
         return;
     }
 
-    // Carregar text domain
+    // Text domain.
     load_plugin_textdomain(
         IW8_WA_CLICK_TRACKER_TEXT_DOMAIN,
         false,
         dirname(IW8_WA_CLICK_TRACKER_PLUGIN_BASENAME) . '/languages'
     );
 
-    // Inicializar plugin principal
+    // Inicializa o núcleo do plugin (se existir).
     try {
-        $plugin = new \IW8\WaClickTracker\Core\Plugin();
-        $plugin->init();
-    } catch (Exception $e) {
-        // Log do erro (sem saída direta)
+        if (class_exists('\IW8\WaClickTracker\Core\Plugin')) {
+            $plugin = new \IW8\WaClickTracker\Core\Plugin();
+            $plugin->init();
+        }
+    } catch (\Throwable $e) {
         if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
             error_log('IW8 WaClickTracker Plugin Error: ' . $e->getMessage());
         }
-
         add_action('admin_notices', 'iw8_wa_click_tracker_init_error_notice');
     }
-};
-
-// Função para notice de erro de inicialização
+}
 function iw8_wa_click_tracker_init_error_notice()
 {
     echo '<div class="notice notice-error"><p>';
-    echo __('Erro ao inicializar IW8 – Rastreador de Cliques WhatsApp.', 'iw8-wa-click-tracker');
+    echo esc_html__('Erro ao inicializar IW8 – Rastreador de Cliques WhatsApp.', 'iw8-wa-click-tracker');
     echo '</p></div>';
 }
-
-// Inicializar o plugin apenas quando o WordPress estiver pronto
 add_action('init', 'iw8_wa_click_tracker_init', 20);
 
-add_action('rest_api_init', function () {
-    // Autoloader do Composer já deve estar ativo anteriormente no bootstrap.
-    if (!class_exists(\IW8\WA\Rest\ApiRegistrar::class)) {
-        return; // segurança em ambiente de dev
+/** === Ativação (único hook) — cria/atualiza DB e testa inserção/limpeza === */
+function iw8_wa_click_tracker_activate()
+{
+    $log_activation = function (string $message, bool $is_error = false): void {
+        $prefix = $is_error ? 'ERROR' : 'INFO';
+        $timestamp = function_exists('current_time') ? current_time('Y-m-d H:i:s') : gmdate('Y-m-d H:i:s');
+        $line = sprintf('[%s] [IW8_WA_CLICK_TRACKER] %s: %s', $timestamp, $prefix, $message);
+
+        if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
+            error_log($line);
+        }
+
+        // Fallback: tenta gravar em logs/plugin.log se possível.
+        try {
+            $logsDir = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'logs/';
+            if (!is_dir($logsDir)) {
+                @wp_mkdir_p($logsDir);
+            }
+            if (is_dir($logsDir) && is_writable($logsDir)) {
+                @file_put_contents($logsDir . 'plugin.log', $line . "\n", FILE_APPEND | LOCK_EX);
+            }
+        } catch (\Throwable $t) {
+            // Ignora: já logamos via error_log quando habilitado.
+        }
+    };
+
+    try {
+        $log_activation('Iniciando ativação do plugin');
+
+        // Autoload de includes (necessário para migrações e classes legadas).
+        $incAutoload = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/autoload.php';
+        if (!is_readable($incAutoload)) {
+            throw new \Exception('Autoloader (includes/autoload.php) não encontrado');
+        }
+        require_once $incAutoload;
+        $log_activation('Autoloader (includes) carregado');
+
+        // Executa migrações (cria/atualiza {prefix}iw8_wa_clicks e migra legado se aplicável).
+        if (function_exists('iw8_wa_run_migrations')) {
+            iw8_wa_run_migrations();
+            $log_activation('Migrações executadas');
+        } else {
+            throw new \Exception('Função de migração ausente (iw8_wa_run_migrations)');
+        }
+
+        // Confirma existência de tabela nova ou antiga.
+        global $wpdb;
+        $tableNew = $wpdb->prefix . 'iw8_wa_clicks';
+        $tableOld = $wpdb->prefix . 'wa_clicks';
+        $existsNew = (bool) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $tableNew));
+        $existsOld = (bool) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $tableOld));
+
+        if (!$existsNew && !$existsOld) {
+            throw new \Exception('Tabela não foi criada no banco de dados');
+        }
+        $log_activation('Verificação de tabela no banco: OK');
+
+        // Atualiza versão de schema.
+        update_option('iw8_wa_db_version', IW8_WA_DB_VERSION);
+
+        // Teste de inserção usando o repositório legado (includes/Database/ClickRepository.php).
+        if (class_exists('\IW8\WaClickTracker\Database\ClickRepository')) {
+            $test = [
+                'url'          => 'https://api.whatsapp.com/send?phone=1234567890&text=test',
+                'page_url'     => home_url('/'),
+                'element_tag'  => 'ACTIVATION_TEST',
+                'element_text' => 'Teste de ativação',
+                'user_agent'   => 'WP-Plugin-Activation',
+                'clicked_at'   => current_time('mysql'),
+            ];
+            /** @var \IW8\WaClickTracker\Database\ClickRepository $repo */
+            $repo = new \IW8\WaClickTracker\Database\ClickRepository();
+            $insertId = $repo->insertClick($test);
+
+            if (is_wp_error($insertId)) {
+                throw new \Exception('Falha no teste de inserção: ' . $insertId->get_error_message());
+            }
+            $log_activation('Teste de inserção: OK (ID: ' . (int) $insertId . ')');
+
+            // Limpeza do registro de teste na tabela realmente usada.
+            $repoTable = method_exists($repo, 'getTableName') ? $repo->getTableName() : ($existsNew ? $tableNew : $tableOld);
+            $wpdb->delete($repoTable, ['id' => (int) $insertId]);
+        }
+
+        $log_activation('Plugin ativado com sucesso - todos os testes passaram');
+    } catch (\Throwable $e) {
+        $ctx = [
+            'file'                => $e->getFile(),
+            'line'                => $e->getLine(),
+            'php_version'         => PHP_VERSION,
+            'wp_version'          => function_exists('get_bloginfo') ? get_bloginfo('version') : 'N/A',
+            'plugin_dir'          => IW8_WA_CLICK_TRACKER_PLUGIN_DIR,
+            'plugin_dir_writable' => is_writable(IW8_WA_CLICK_TRACKER_PLUGIN_DIR),
+        ];
+        $log_activation('ERRO FATAL na ativação: ' . $e->getMessage(), true);
+        $log_activation('Contexto do erro: ' . wp_json_encode($ctx), true);
+
+        // Propaga para que o WP mostre o erro de ativação.
+        throw $e;
     }
-    $registrar = new \IW8\WA\Rest\ApiRegistrar();
-    $registrar->register();
-});
+}
+register_activation_hook(__FILE__, 'iw8_wa_click_tracker_activate');
+
+/** === Desinstalação (placeholder seguro) === */
+function iw8_wa_click_tracker_uninstall()
+{
+    if (!defined('WP_UNINSTALL_PLUGIN')) {
+        exit;
+    }
+    if (!current_user_can('activate_plugins')) {
+        return;
+    }
+    if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
+        error_log('IW8_WA_CLICK_TRACKER: Plugin desinstalado');
+    }
+    // TODO: remover opções se desejar; por padrão manter tabelas.
+}
+register_uninstall_hook(__FILE__, 'iw8_wa_click_tracker_uninstall');
