@@ -6,5 +6,5 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
-    'IW8\\WaClickTracker\\' => array($baseDir . '/src'),
+    'IW8\\WA\\' => array($baseDir . '/src'),
 );

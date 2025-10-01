@@ -7,4 +7,17 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'Composer\\InstalledVersions' => $vendorDir . '/composer/InstalledVersions.php',
+    'IW8\\WA\\Http\\ErrorFactory' => $baseDir . '/src/Http/ErrorFactory.php',
+    'IW8\\WA\\Http\\JsonResponse' => $baseDir . '/src/Http/JsonResponse.php',
+    'IW8\\WA\\Repositories\\ClickRepository' => $baseDir . '/src/Repositories/ClickRepository.php',
+    'IW8\\WA\\Rest\\ApiRegistrar' => $baseDir . '/src/Rest/ApiRegistrar.php',
+    'IW8\\WA\\Rest\\ClicksController' => $baseDir . '/src/Rest/ClicksController.php',
+    'IW8\\WA\\Security\\HttpsEnforcer' => $baseDir . '/src/Security/HttpsEnforcer.php',
+    'IW8\\WA\\Security\\RateLimiter' => $baseDir . '/src/Security/RateLimiter.php',
+    'IW8\\WA\\Security\\TokenAuthenticator' => $baseDir . '/src/Security/TokenAuthenticator.php',
+    'IW8\\WA\\Services\\LimitsProvider' => $baseDir . '/src/Services/LimitsProvider.php',
+    'IW8\\WA\\Services\\TimeProvider' => $baseDir . '/src/Services/TimeProvider.php',
+    'IW8\\WA\\Support\\Env' => $baseDir . '/src/Support/Env.php',
+    'IW8\\WA\\Validation\\CursorCodec' => $baseDir . '/src/Validation/CursorCodec.php',
+    'IW8\\WA\\Validation\\RequestValidator' => $baseDir . '/src/Validation/RequestValidator.php',
 );

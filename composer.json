@@ -8,7 +8,7 @@
   },
   "autoload": {
     "psr-4": {
-      "IW8\\WaClickTracker\\": "src/"
+      "IW8\\WA\\": "src/"
     }
   },
   "config": {

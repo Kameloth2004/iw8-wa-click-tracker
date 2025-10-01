@@ -1,0 +1,21 @@
+<?php
+// Bootstrap do Admin para carregar classes legadas e registrar o menu.
+if (!defined('ABSPATH')) { exit; }
+
+// Shim do repositório legado (compat Pages antigas)
+$shim = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/Database/ClickRepository.php';
+if (is_readable($shim)) { require_once $shim; }
+
+// Pages e Menu legados
+$pages = [
+    'includes/Admin/Pages/ClicksPage.php',
+    'includes/Admin/Pages/DiagnosticsPage.php',
+    'includes/Admin/Pages/SettingsPage.php',
+    'includes/Admin/Menu.php',
+];
+foreach ($pages as $rel) {
+    $full = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . $rel;
+    if (is_readable($full)) { require_once $full; }
+}
+
+// Registrar menu (somente se as classes existirem)

@@ -4,7 +4,7 @@
  * Classe para gerenciar assets (CSS/JS) do plugin
  *
  * @package IW8_WaClickTracker\Core
- * @version 1.3.0
+ * @version 1.4.3
  */
 
 namespace IW8\WaClickTracker\Core;
@@ -24,7 +24,7 @@ class Assets
      */
     public function __construct()
     {
-        // Classe utilitária, não requer inicialização
+        // Classe utilitária; sem estado
     }
 
     /**
@@ -32,122 +32,82 @@ class Assets
      *
      * @return void
      */
-    public function enqueue_front()
+    public function enqueue_front(): void
     {
-        // Verificar se não é admin
+        // Apenas frontend (não admin)
         if (is_admin()) {
             return;
         }
 
-        // Verificar se telefone está configurado e é válido
-        $phone = get_option('iw8_wa_phone', '');
+        $debug = (bool) get_option('iw8_wa_debug', false);
 
-        // DEBUG: Log para verificar telefone
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone obtido: ' . $phone);
+        // Verificar se telefone está configurado e é válido
+        $phone_raw = (string) get_option('iw8_wa_phone', '');
+        if ($debug && function_exists('error_log')) {
+            error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone obtido: ' . $phone_raw);
         }
 
-        if (!$this->isValidPhone($phone)) {
-            if (function_exists('error_log')) {
-                error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone inválido, não enfileirando assets');
+        if (!$this->isValidPhone($phone_raw)) {
+            if ($debug && function_exists('error_log')) {
+                error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone inválido; não enfileirando tracker.');
             }
             return;
         }
 
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone válido, enfileirando assets');
-        }
+        // Normaliza telefone (somente dígitos)
+        $phone_digits = preg_replace('/[^0-9]/', '', $phone_raw);
 
-        // Gerar nonce
-        $nonce = wp_create_nonce('iw8_wa_click_nonce');
+        // Nonce da ação AJAX
+        $nonce = wp_create_nonce('iw8_wa_click');
 
-        // Obter configurações
-        $debug = get_option('iw8_wa_debug', false);
-        $no_beacon = get_option('iw8_wa_no_beacon', true);
+        // Preferência de envio (beacon → fetch → xhr)
+        $no_beacon = (bool) get_option('iw8_wa_no_beacon', true);
 
-        // Preparar dados para JavaScript
-        $data = [
+        // Dados consumidos por assets/js/tracker.js
+        $data = array(
             'ajax_url' => admin_url('admin-ajax.php'),
-            'action' => 'iw8_wa_click',
-            'nonce' => $nonce,
-            'phone' => preg_replace('/[^0-9]/', '', $phone),
-            'debug' => (bool) $debug,
-            'noBeacon' => (bool) $no_beacon
-        ];
-
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: Dados preparados: ' . wp_json_encode($data));
-        }
-
-        // PRIMEIRO: Enfileirar script tracker
-        wp_enqueue_script(
-            'iw8-wa-tracker',
-            IW8_WA_CLICK_TRACKER_PLUGIN_URL . 'assets/js/tracker.js',
-            [], // Sem dependências
-            IW8_WA_CLICK_TRACKER_VERSION,
-            true // No footer
+            'action'   => 'iw8_wa_click',
+            'nonce'    => $nonce,
+            'phone'    => $phone_digits,
+            'debug'    => $debug,
+            'noBeacon' => $no_beacon,
+            'user_id'  => get_current_user_id() ?: 0,
         );
 
-        // Ex.: dentro do método que enfileira o tracker
-        $phone = get_option('iw8_wa_phone', '');
-
-        // Monte os dados que o tracker.js vai ler
-        $data = [
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'action'   => 'iw8_wa_click',                 // a action do AJAX
-            'nonce'    => wp_create_nonce('iw8_wa_click'), // *** action string do nonce ***
-            'phone'    => $phone,
-            'debug'    => defined('WP_DEBUG') && WP_DEBUG,
-            'noBeacon' => true,
-        ];
-
-        // (opcional) log pra conferência
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: Dados preparados: ' . wp_json_encode($data));
+        if ($debug && function_exists('error_log')) {
+            error_log('IW8_WA_CLICK_TRACKER DEBUG: iw8WaData: ' . wp_json_encode($data));
         }
 
-        // Envie pro JS ANTES do tracker.js
+        // Registrar + enfileirar o tracker (sem dependências; no footer)
+        $handle = 'iw8-wa-tracker';
+        $src    = IW8_WA_CLICK_TRACKER_PLUGIN_URL . 'assets/js/tracker.js';
+        $ver    = defined('IW8_WA_CT_VERSION') ? IW8_WA_CT_VERSION : (defined('IW8_WA_CLICK_TRACKER_VERSION') ? IW8_WA_CLICK_TRACKER_VERSION : '1.0.0');
+
+        wp_register_script($handle, $src, array(), $ver, true);
+
+        // Injetar iw8WaData ANTES do script
         wp_add_inline_script(
-            'iw8-wa-tracker',
+            $handle,
             'window.iw8WaData = ' . wp_json_encode($data) . ';',
             'before'
         );
 
-        // DEPOIS: Adicionar dados inline ANTES do script
-        wp_add_inline_script(
-            'iw8-wa-tracker',
-            'window.iw8WaData = ' . wp_json_encode($data) . ';',
-            'before'
-        );
+        wp_enqueue_script($handle);
 
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: Assets enfileirados com sucesso');
+        if ($debug && function_exists('error_log')) {
+            error_log('IW8_WA_CLICK_TRACKER DEBUG: Tracker enfileirado com sucesso.');
         }
     }
 
     /**
-     * Enfileirar assets do admin
+     * Enfileirar assets do admin (placeholder)
      *
      * @return void
      */
-    public function enqueue_admin()
+    public function enqueue_admin(): void
     {
-        // TODO: Implementar enfileiramento de assets do admin
-        // - admin.js
-        // - admin.css
-    }
-
-    /**
-     * Localizar dados para JavaScript do frontend
-     *
-     * @return void
-     */
-    public function localize_front_data()
-    {
-        // TODO: Implementar localização de dados
-        // - nonce
-        // - URLs
-        // - configurações
+        // Mantido como placeholder para futuro admin.css/admin.js se necessário.
+        // Intencionalmente vazio para não carregar nada desnecessário no painel.
     }
 
     /**
@@ -156,21 +116,27 @@ class Assets
      * @param string $phone Número de telefone
      * @return bool
      */
-    private function isValidPhone($phone)
+    private function isValidPhone(string $phone): bool
     {
-        if (empty($phone)) {
-            if (function_exists('error_log')) {
+        if ($phone === '') {
+            if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
                 error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone vazio');
             }
             return false;
         }
 
-        // Normalizar e verificar comprimento
+        // Normalizar e verificar comprimento (10 a 15 dígitos)
         $digits_only = preg_replace('/[^0-9]/', '', $phone);
-        $is_valid = strlen($digits_only) >= 10 && strlen($digits_only) <= 15;
+        $len = strlen($digits_only);
+        $is_valid = ($len >= 10 && $len <= 15);
 
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone original: ' . $phone . ', dígitos: ' . $digits_only . ', válido: ' . ($is_valid ? 'SIM' : 'NÃO'));
+        if ((bool) get_option('iw8_wa_debug', false) && function_exists('error_log')) {
+            error_log(sprintf(
+                'IW8_WA_CLICK_TRACKER DEBUG: Telefone original: %s, dígitos: %s, válido: %s',
+                $phone,
+                $digits_only,
+                $is_valid ? 'SIM' : 'NÃO'
+            ));
         }
 
         return $is_valid;

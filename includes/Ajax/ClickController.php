@@ -66,102 +66,127 @@ class ClickController
      */
     public function handle_click(): void
     {
-        // Log de entrada e payload (útil p/ debug)
-        if (function_exists('error_log')) {
+        $debug = (bool) get_option('iw8_wa_debug', false);
+
+        /** @var array<string,mixed> $post */
+        $post = isset($_POST) && is_array($_POST) ? wp_unslash($_POST) : array();
+
+        if ($debug && function_exists('error_log')) {
             error_log('IW8_WA_CLICK_TRACKER DEBUG: Requisição AJAX recebida');
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: POST data: ' . print_r($_POST, true));
+            error_log('IW8_WA_CLICK_TRACKER DEBUG: POST data: ' . print_r($post, true));
         }
 
-        // Nonce precisa usar a MESMA "action" configurada ao gerar no PHP que localiza o script.
+        // === Nonce ===
         $nonce_ok =
+            check_ajax_referer('iw8_wa_click', '_ajax_nonce', false) ||
             check_ajax_referer('iw8_wa_click', 'nonce', false) ||
-            check_ajax_referer('iw8_wa_click_nonce', 'nonce', false);
+            check_ajax_referer('iw8_wa_click_nonce', 'nonce', false); // compat legado
 
         if (!$nonce_ok) {
-            if (function_exists('error_log')) {
-                error_log('IW8_WA_CLICK_TRACKER DEBUG: Nonce inválido (falhou em iw8_wa_click e iw8_wa_click_nonce)');
+            if ($debug && function_exists('error_log')) {
+                error_log('IW8_WA_CLICK_TRACKER DEBUG: Nonce inválido');
             }
-            wp_send_json_error(['ok' => false, 'error' => 'bad_nonce'], 403);
+            wp_send_json_error(array('ok' => false, 'error' => 'bad_nonce'), 403);
             return;
         }
 
-        if (function_exists('error_log')) {
+        if ($debug && function_exists('error_log')) {
             error_log('IW8_WA_CLICK_TRACKER DEBUG: Nonce válido, processando dados');
         }
 
+        // === Payload (campos individuais OU data JSON) ===
+        $payload = array();
 
-        // Sanitização
-        $url          = isset($_POST['url']) ? esc_url_raw($_POST['url']) : '';
-        $page_url     = isset($_POST['page_url']) ? esc_url_raw($_POST['page_url']) : '';
-        $element_tag  = isset($_POST['element_tag']) ? sanitize_text_field($_POST['element_tag']) : '';
-        $element_text = isset($_POST['element_text']) ? wp_strip_all_tags($_POST['element_text']) : '';
+        if (!empty($post['data'])) {
+            $raw = is_string($post['data']) ? $post['data'] : '';
+            $arr = json_decode($raw, true);
+            if (is_array($arr)) {
+                $payload = $arr;
+            }
+        }
+
+        // Campos individuais têm precedência (mantém compatibilidade)
+        $payload['url']          = isset($post['url']) ? $post['url'] : ($payload['url'] ?? '');
+        $payload['page_url']     = isset($post['page_url']) ? $post['page_url'] : ($payload['page_url'] ?? '');
+        $payload['element_tag']  = isset($post['element_tag']) ? $post['element_tag'] : ($payload['element_tag'] ?? '');
+        $payload['element_text'] = isset($post['element_text']) ? $post['element_text'] : ($payload['element_text'] ?? '');
+        $payload['user_id']      = isset($post['user_id']) ? $post['user_id'] : ($payload['user_id'] ?? 0);
+
+        // === Sanitização ===
+        $url          = esc_url_raw((string) ($payload['url'] ?? ''));
+        $page_url     = esc_url_raw((string) ($payload['page_url'] ?? ''));
+        $element_tag  = sanitize_text_field((string) ($payload['element_tag'] ?? ''));
+        $element_text = wp_strip_all_tags((string) ($payload['element_text'] ?? ''));
+        $user_id      = (int) ($payload['user_id'] ?? 0);
 
         if ($url === '') {
-            wp_send_json_error(['ok' => false, 'error' => 'missing_url'], 400);
+            wp_send_json_error(array('ok' => false, 'error' => 'missing_url'), 400);
             return;
         }
 
-        // Telefone configurado
-        $phone = get_option('iw8_wa_phone', '');
+        // === Telefone configurado ===
+        $phone = (string) get_option('iw8_wa_phone', '');
         if ($phone === '' || !$this->url_matcher->isValidPhone($phone)) {
-            if (function_exists('error_log')) {
+            if ($debug && function_exists('error_log')) {
                 error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone não configurado ou inválido: ' . $phone);
             }
-            wp_send_json_success(['ok' => false, 'ignored' => true, 'reason' => 'no_phone']);
+            wp_send_json_success(array('ok' => false, 'ignored' => true, 'reason' => 'no_phone'));
             return;
         }
-        if (function_exists('error_log')) {
+        if ($debug && function_exists('error_log')) {
             error_log('IW8_WA_CLICK_TRACKER DEBUG: Telefone válido: ' . $phone);
         }
 
-        // Validar URL alvo
-        $ok = $this->url_matcher->matchesTarget($url, $phone);
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: UrlMatcher resultado = ' . ($ok ? 'OK' : 'IGNORADA') . ' | URL=' . $url);
+        // === Validar URL alvo ===
+        $match_ok = $this->url_matcher->matchesTarget($url, $phone);
+        if ($debug && function_exists('error_log')) {
+            error_log('IW8_WA_CLICK_TRACKER DEBUG: UrlMatcher resultado=' . ($match_ok ? 'OK' : 'IGNORADA') . ' | URL=' . $url);
         }
-        if (!$ok) {
-            wp_send_json_success(['ok' => false, 'ignored' => true, 'reason' => 'url_mismatch', 'url' => $url]);
+        if (!$match_ok) {
+            wp_send_json_success(array('ok' => false, 'ignored' => true, 'reason' => 'url_mismatch', 'url' => $url));
             return;
         }
 
-        // Dados p/ insert
-        $data = [
+        // === Dados para persistência ===
+        $data = array(
             'url'          => $url,
-            'page_url'     => $page_url ?: home_url('/'),
-            'element_tag'  => $element_tag ?: 'A',
-            'element_text' => $element_text ?: '',
-            'user_id'      => get_current_user_id() ?: null,
+            'page_url'     => $page_url ?: (wp_get_referer() ?: home_url('/')),
+            'element_tag'  => $element_tag !== '' ? strtoupper($element_tag) : 'A',
+            'element_text' => $element_text,
             'user_agent'   => $this->get_user_agent(),
+            'user_id'      => $user_id > 0 ? $user_id : (get_current_user_id() ?: 0),
             'clicked_at'   => current_time('mysql'),
-        ];
+        );
 
-        if (function_exists('error_log')) {
+        if ($debug && function_exists('error_log')) {
             error_log('IW8_WA_CLICK_TRACKER DEBUG: Data pronto p/ insert: ' . wp_json_encode($data));
         }
 
-        // Inserção
+        // === Inserção ===
         global $wpdb;
         /** @var \wpdb $wpdb */
         $result = $this->repository->insertClick($data);
 
         if (is_wp_error($result)) {
-            if (function_exists('error_log')) {
+            if ($debug && function_exists('error_log')) {
                 error_log('IW8 WaClickTracker Insert Error: ' . $result->get_error_message() . ' | wpdb: ' . $wpdb->last_error);
             }
-            wp_send_json_error([
+            wp_send_json_error(array(
                 'ok'      => false,
                 'error'   => 'db_insert_failed',
                 'message' => $result->get_error_message(),
                 'wpdb'    => $wpdb->last_error,
-            ], 500);
+            ), 500);
             return;
         }
 
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: Clique inserido. ID=' . $result);
+        if ($debug && function_exists('error_log')) {
+            error_log('IW8_WA_CLICK_TRACKER DEBUG: Clique inserido. ID=' . (int) $result);
         }
-        wp_send_json_success(['ok' => true, 'id' => $result]);
+
+        wp_send_json_success(array('ok' => true, 'id' => (int) $result));
     }
+
 
     /**
      * User-Agent limitado a 255 chars (compatível com schema)

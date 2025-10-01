@@ -1,249 +1,240 @@
 <?php
 
-/**
- * Repositório de cliques
- *
- * @package IW8_WaClickTracker\Database
- * @version 1.3.0
- */
-
 namespace IW8\WaClickTracker\Database;
 
-// Prevenir acesso direto
 if (!defined('ABSPATH')) {
     exit;
 }
 
 class ClickRepository
 {
-    /** @var string */
-    private $table;
-
-    public function __construct()
-    {
-        global $wpdb;
-        $this->table = $this->resolveTableName();
-    }
-
-    /** Retorna a tabela preferencial (nova) com fallback para a legada. */
-    private function resolveTableName(): string
+    /** Resolve a tabela preferida (nova) com fallback legado. */
+    private function resolveTableName()
     {
         global $wpdb;
         $new = $wpdb->prefix . 'iw8_wa_clicks';
         $old = $wpdb->prefix . 'wa_clicks';
         if ($this->tableExists($new)) return $new;
         if ($this->tableExists($old)) return $old;
-        return $new; // default lógico (mesmo que ainda não exista)
+        return $new;
     }
 
-    /** Verifica existência de tabela. */
-    private function tableExists(string $table): bool
+    private function tableExists($table)
     {
         global $wpdb;
-        $like  = $wpdb->esc_like($table);
-        $sql   = "SHOW TABLES LIKE %s";
+        $like = $wpdb->esc_like($table);
+        $sql  = "SHOW TABLES LIKE %s";
         $found = $wpdb->get_var($wpdb->prepare($sql, $like));
         return is_string($found);
     }
 
-    /** Nome da tabela (com prefixo) */
-    public function getTableName(): string
-    {
-        return $this->table;
-    }
-
-    /** A tabela atual possui a coluna informada? */
-    private function hasColumn(string $col): bool
+    private function discoverSchema($table)
     {
         global $wpdb;
-        $sql = $wpdb->prepare("SHOW COLUMNS FROM `{$this->table}` LIKE %s", $col);
-        return (bool) $wpdb->get_var($sql);
+        $cols = array();
+        $rows = $wpdb->get_results("SHOW COLUMNS FROM `{$table}`", ARRAY_A);
+        if (is_array($rows)) {
+            foreach ($rows as $r) {
+                if (isset($r['Field'])) {
+                    $cols[] = (string)$r['Field'];
+                }
+            }
+        }
+        $clickedCol = in_array('clicked_at', $cols, true) ? 'clicked_at'
+            : (in_array('created_at', $cols, true) ? 'created_at' : null);
+        return array('columns' => $cols, 'clickedCol' => $clickedCol);
     }
 
-    /** Nome da coluna de data válida na tabela atual. */
-    private function dateColumn(): string
+    private function selectFields()
     {
-        return $this->hasColumn('clicked_at') ? 'clicked_at' : 'created_at';
+        return array('id', 'clicked_at', 'url', 'page_url', 'element_tag', 'element_text', 'user_agent', 'user_id');
     }
 
-
-    /**
-     * Inserir um clique
-     * @param array $data
-     * @return int|\WP_Error ID inserido ou WP_Error
-     */
-    public function insertClick(array $data)
+    private function normalizeFilters($filters, $schema)
     {
-        global $wpdb;
-
-        // Normalizações (evitam erro de tamanho/tipo)
-        $url          = isset($data['url']) ? (string)$data['url'] : '';
-        $page_url     = isset($data['page_url']) ? (string)$data['page_url'] : null;
-        $element_tag  = isset($data['element_tag']) ? (string)$data['element_tag'] : '';
-        $element_text = isset($data['element_text']) ? (string)$data['element_text'] : null;
-        $user_id      = isset($data['user_id']) && $data['user_id'] !== null ? (int)$data['user_id'] : null;
-        $user_agent   = isset($data['user_agent']) ? (string)$data['user_agent'] : null;
-        $clicked_at   = !empty($data['clicked_at']) ? (string)$data['clicked_at'] : current_time('mysql');
-
-        // Cortes para colunas varchar
-        if (function_exists('mb_substr')) {
-            $url         = mb_substr($url, 0, 255);
-            $element_tag = mb_substr($element_tag, 0, 50);
-            if ($user_agent !== null) {
-                $user_agent = mb_substr($user_agent, 0, 255);
-            }
-        } else {
-            $url         = substr($url, 0, 255);
-            $element_tag = substr($element_tag, 0, 50);
-            if ($user_agent !== null) {
-                $user_agent = substr($user_agent, 0, 255);
+        $f = array(
+            'page_url'    => '',
+            'element_tag' => '',
+            'user_id'     => 0,
+            'since'       => '', // ISO 8601 ou Y-m-d H:i:s
+            'until'       => '',
+            'search'      => '',
+        );
+        foreach ($f as $k => $v) {
+            if (isset($filters[$k])) {
+                $f[$k] = $filters[$k];
             }
         }
-
-        // Monta linha
-        $row = [
-            'url'          => $url,
-            'page_url'     => $page_url,     // TEXT, pode ser null
-            'element_tag'  => $element_tag,  // varchar(50), NOT NULL na prática aceitamos vazio
-            'element_text' => $element_text, // TEXT, pode ser null
-            'user_id'      => $user_id,      // bigint unsigned, pode ser null
-            'user_agent'   => $user_agent,   // varchar(255), pode ser null
-            'clicked_at'   => $clicked_at,   // datetime NOT NULL
-        ];
-
-        // Formatos (quando valor é null, o WP/wpdb insere NULL — ok)
-        $formats = [
-            '%s', // url
-            '%s', // page_url
-            '%s', // element_tag
-            '%s', // element_text
-            '%d', // user_id
-            '%s', // user_agent
-            '%s', // clicked_at
-        ];
-
-        // LOG: tabela e dados (para debug)
-        if (function_exists('error_log')) {
-            error_log('[IW8_WA_CLICK_TRACKER] REPO insert na tabela: ' . $this->table);
-            error_log('[IW8_WA_CLICK_TRACKER] REPO dados: ' . print_r($row, true));
-        }
-
-        $ok = $wpdb->insert($this->table, $row, $formats);
-
-        if ($ok === false) {
-            // LOG de erro SQL
-            if (function_exists('error_log')) {
-                error_log('[IW8_WA_CLICK_TRACKER] REPO ERRO insert: ' . $wpdb->last_error);
-                // Atenção: $wpdb->last_query pode conter dados sensíveis; use só em debug
-                error_log('[IW8_WA_CLICK_TRACKER] REPO last_query: ' . $wpdb->last_query);
+        // Normalizar datas (aceita ISO)
+        foreach (['since', 'until'] as $dk) {
+            if (!empty($f[$dk])) {
+                $ts = strtotime((string)$f[$dk]);
+                if ($ts !== false) {
+                    $f[$dk] = gmdate('Y-m-d H:i:s', $ts);
+                } else {
+                    $f[$dk] = '';
+                }
             }
-            return new \WP_Error('db_insert_failed', 'Falha ao inserir clique: ' . $wpdb->last_error);
         }
-
-        $id = (int)$wpdb->insert_id;
-
-        if (function_exists('error_log')) {
-            error_log('[IW8_WA_CLICK_TRACKER] REPO inserido com sucesso. ID=' . $id);
-        }
-
-        return $id;
+        return $f;
     }
 
-    /**
-     * Listar cliques
-     * @param array $filters  (não usado aqui, mas mantido p/ compat)
-     * @param array $opts     ['per_page'=>int, 'offset'=>int]
-     * @return array<object>
-     */
-    public function list(array $filters = [], array $opts = [])
+    /** Inserção usada pelo AJAX/REST */
+    public function insertClick($data)
     {
         global $wpdb;
+        $table = $this->resolveTableName();
+        if (!$this->tableExists($table)) {
+            return new \WP_Error('table_missing', 'Tabela de cliques não existe.');
+        }
+        $schema = $this->discoverSchema($table);
+        $cols = $schema['columns'];
 
-        $per_page = isset($opts['per_page']) ? max(1, (int)$opts['per_page']) : 20;
-        $offset   = isset($opts['offset']) ? max(0, (int)$opts['offset']) : 0;
-
-        $dtCol = $this->dateColumn();
-        $clickedSelect = ($dtCol === 'clicked_at') ? '`clicked_at`' : '`created_at` AS `clicked_at`';
-
-        $sql = $wpdb->prepare(
-            "SELECT id, url, page_url, element_tag, element_text, user_id, user_agent, {$clickedSelect}
-         FROM {$this->table}
-         ORDER BY `{$dtCol}` DESC, id DESC
-         LIMIT %d OFFSET %d",
-            $per_page,
-            $offset
+        $row = array(
+            'clicked_at'   => gmdate('Y-m-d H:i:s'),
+            'url'          => isset($data['url']) ? (string)$data['url'] : '',
+            'page_url'     => isset($data['page_url']) ? (string)$data['page_url'] : '',
+            'element_tag'  => isset($data['element_tag']) ? (string)$data['element_tag'] : '',
+            'element_text' => isset($data['element_text']) ? (string)$data['element_text'] : '',
+            'user_agent'   => isset($data['user_agent']) ? (string)$data['user_agent'] : '',
+            'user_id'      => isset($data['user_id']) ? intval($data['user_id']) : 0,
         );
 
-        return $wpdb->get_results($sql);
-    }
-    /**
-     * Contagem total
-     * @return array{total:int}
-     */
+        // Remover colunas que não existem
+        foreach (array_keys($row) as $k) {
+            if (!in_array($k, $cols, true)) {
+                unset($row[$k]);
+            }
+        }
 
-    public function countTotals($filters = [])
+        // Formats por tipo
+        $formats = array();
+        foreach ($row as $k => $_) {
+            $formats[] = ($k === 'user_id') ? '%d' : '%s';
+        }
+
+        $ok = $wpdb->insert($table, $row, $formats);
+        if ($ok === false) {
+            return new \WP_Error('db_insert_failed', $wpdb->last_error ?: 'Falha ao inserir');
+        }
+        return (int)$wpdb->insert_id;
+    }
+
+    /** Listagem (Relatórios) */
+    public function list(array $filters = [], array $pagination = []): array
     {
         global $wpdb;
 
-        $table = $this->table;             // usar a tabela já resolvida (nova ou legado)
-        $dtCol = $this->dateColumn();      // coluna real de data
+        $table = $this->resolveTableName();
+        if (!$this->tableExists($table)) return [];
 
+        $schema     = $this->discoverSchema($table);
+        $cols       = $schema['columns'];
+        $clickedCol = $schema['clickedCol'];        // 'clicked_at' | 'created_at' | null
+        if (!$clickedCol) return [];                // sem coluna temporal não ordena/pagina
+
+        $f = $this->normalizeFilters($filters, $schema);
+
+        // WHERE + params (helper pra reduzir ifs soltos)
         $where  = [];
         $params = [];
+        $add = function (string $cond, $val) use (&$where, &$params) {
+            $where[]  = $cond;
+            $params[] = $val;
+        };
 
-        if (!empty($filters['s'])) {
-            $like = '%' . $wpdb->esc_like($filters['s']) . '%';
-            $where[]  = '(page_url LIKE %s OR element_text LIKE %s)';
-            $params[] = $like;
-            $params[] = $like;
+        if (!empty($f['page_url'])     && in_array('page_url', $cols, true))     $add("`page_url` LIKE %s", trailingslashit($f['page_url']) . '%');
+        if (!empty($f['element_tag'])  && in_array('element_tag', $cols, true))  $add("`element_tag` = %s", $f['element_tag']);
+        if (!empty($f['user_id'])      && in_array('user_id', $cols, true))      $add("`user_id` = %d", (int) $f['user_id']);
+        if (!empty($f['since']))                                               $add("`{$clickedCol}` >= %s", $f['since']);
+        if (!empty($f['until']))                                               $add("`{$clickedCol}` <= %s", $f['until']);
+        if (!empty($f['search'])      && in_array('element_text', $cols, true))  $add("`element_text` LIKE %s", '%' . $wpdb->esc_like($f['search']) . '%');
+
+        $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+
+        // SELECT público com alias quando precisar
+        $public      = $this->selectFields(); // ['id','clicked_at','url','page_url',...]
+        $selectParts = [];
+        foreach ($public as $c) {
+            if ($c === 'clicked_at') {
+                if ($clickedCol === 'clicked_at' && in_array('clicked_at', $cols, true)) {
+                    $selectParts[] = '`clicked_at`';
+                } elseif ($clickedCol === 'created_at' && in_array('created_at', $cols, true)) {
+                    $selectParts[] = '`created_at` AS `clicked_at`';
+                }
+                continue;
+            }
+            if (in_array($c, $cols, true)) {
+                $selectParts[] = "`{$c}`";
+            }
+        }
+        if (empty($selectParts)) {
+            $selectParts[] = in_array('id', $cols, true) ? '`id`' : '1 AS id';
+        }
+        $selectSql = implode(', ', $selectParts);
+
+        // paginação + ordenação
+        $limit  = isset($pagination['limit'])  ? max(1, (int) $pagination['limit'])  : 50;
+        $offset = isset($pagination['offset']) ? max(0, (int) $pagination['offset']) : 0;
+        $dir    = strtoupper($f['order'] ?? 'DESC');
+        $dir    = ($dir === 'ASC') ? 'ASC' : 'DESC';
+
+        $sql = "SELECT {$selectSql}
+              FROM `{$table}`{$whereSql}
+          ORDER BY `{$clickedCol}` {$dir}, `id` {$dir}
+             LIMIT %d OFFSET %d";
+
+        $params[] = $limit;
+        $params[] = $offset;
+
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+        return is_array($rows) ? $rows : [];
+    }
+
+
+    /** Totais (total/7/30) */
+    public function countTotals($filters = array())
+    {
+        global $wpdb;
+        $out = array('total' => 0, 'last7' => 0, 'last30' => 0);
+        $table = $this->resolveTableName();
+        if (!$this->tableExists($table)) {
+            return (object)$out;
         }
 
-        if (!empty($filters['url_regexp'])) {
-            $where[]  = 'url REGEXP %s';
-            $params[] = $filters['url_regexp'];
+        $schema = $this->discoverSchema($table);
+        $clickedCol = $schema['clickedCol'];
+        if (!$clickedCol) {
+            return (object)$out;
         }
 
-        // ----- TOTAL (respeita from/to quando informados) -----
-        $whereTotal  = $where;
-        $paramsTotal = $params;
+        $f = $this->normalizeFilters(is_array($filters) ? $filters : array(), $schema);
+        $where = array();
+        $params = array();
+        $cols = $schema['columns'];
 
-        if (!empty($filters['from'])) {
-            $whereTotal[]  = "`{$dtCol}` >= %s";
-            $paramsTotal[] = $filters['from'] . ' 00:00:00';
+        if (!empty($f['page_url']) && in_array('page_url', $cols, true)) {
+            $where[] = "`page_url` LIKE %s";
+            $params[] = trailingslashit($f['page_url']) . '%';
         }
-        if (!empty($filters['to'])) {
-            $whereTotal[]  = "`{$dtCol}` <= %s";
-            $paramsTotal[] = $filters['to'] . ' 23:59:59';
+        if (!empty($f['element_tag']) && in_array('element_tag', $cols, true)) {
+            $where[] = "`element_tag` = %s";
+            $params[] = $f['element_tag'];
         }
-
-        $sqlTotal = "SELECT COUNT(*) FROM {$table} WHERE 1=1"
-            . ($whereTotal ? ' AND ' . implode(' AND ', $whereTotal) : '');
-        if ($paramsTotal) {
-            $sqlTotal = $wpdb->prepare($sqlTotal, $paramsTotal);
+        if (!empty($f['user_id']) && in_array('user_id', $cols, true)) {
+            $where[] = "`user_id` = %d";
+            $params[] = (int)$f['user_id'];
         }
-        $total = (int) $wpdb->get_var($sqlTotal);
+        $whereSql = empty($where) ? '' : (' AND ' . implode(' AND ', $where));
 
-        // ----- LAST 7 / LAST 30 (ignorando from/to) -----
-        $nowTs = current_time('timestamp');
-        $dt7   = date('Y-m-d H:i:s', $nowTs - 7  * DAY_IN_SECONDS);
-        $dt30  = date('Y-m-d H:i:s', $nowTs - 30 * DAY_IN_SECONDS);
+        $q1  = "SELECT COUNT(*) FROM `{$table}` WHERE 1=1 {$whereSql}";
+        $q7  = "SELECT COUNT(*) FROM `{$table}` WHERE `{$clickedCol}` >= (UTC_TIMESTAMP() - INTERVAL 7 DAY) {$whereSql}";
+        $q30 = "SELECT COUNT(*) FROM `{$table}` WHERE `{$clickedCol}` >= (UTC_TIMESTAMP() - INTERVAL 30 DAY) {$whereSql}";
 
-        $where7  = array_merge($where, ["`{$dtCol}` >= %s"]);
-        $params7 = array_merge($params, [$dt7]);
-        $sql7    = "SELECT COUNT(*) FROM {$table} WHERE 1=1 AND " . implode(' AND ', $where7);
-        $sql7    = $wpdb->prepare($sql7, $params7);
-        $last7   = (int) $wpdb->get_var($sql7);
+        $out["total"]  = (int)$wpdb->get_var(!empty($params) ? $wpdb->prepare($q1,  $params) : $q1);
+        $out["last7"]  = (int)$wpdb->get_var(!empty($params) ? $wpdb->prepare($q7,  $params) : $q7);
+        $out["last30"] = (int)$wpdb->get_var(!empty($params) ? $wpdb->prepare($q30, $params) : $q30);
 
-        $where30  = array_merge($where, ["`{$dtCol}` >= %s"]);
-        $params30 = array_merge($params, [$dt30]);
-        $sql30    = "SELECT COUNT(*) FROM {$table} WHERE 1=1 AND " . implode(' AND ', $where30);
-        $sql30    = $wpdb->prepare($sql30, $params30);
-        $last30   = (int) $wpdb->get_var($sql30);
-
-        return [
-            'total'  => $total,
-            'last7'  => $last7,
-            'last30' => $last30,
-        ];
+        return (object)$out;
     }
 }

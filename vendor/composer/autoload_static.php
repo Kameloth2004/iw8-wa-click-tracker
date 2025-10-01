@@ -13,12 +13,12 @@ class ComposerStaticInit40ee490e466fc51ff7728f50148bef6d
     public static $prefixLengthsPsr4 = array (
         'I' => 
         array (
-            'IW8\\WaClickTracker\\' => 19,
+            'IW8\\WA\\' => 7,
         ),
     );
 
     public static $prefixDirsPsr4 = array (
-        'IW8\\WaClickTracker\\' => 
+        'IW8\\WA\\' => 
         array (
             0 => __DIR__ . '/../..' . '/src',
         ),
@@ -26,6 +26,19 @@ class ComposerStaticInit40ee490e466fc51ff7728f50148bef6d
 
     public static $classMap = array (
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
+        'IW8\\WA\\Http\\ErrorFactory' => __DIR__ . '/../..' . '/src/Http/ErrorFactory.php',
+        'IW8\\WA\\Http\\JsonResponse' => __DIR__ . '/../..' . '/src/Http/JsonResponse.php',
+        'IW8\\WA\\Repositories\\ClickRepository' => __DIR__ . '/../..' . '/src/Repositories/ClickRepository.php',
+        'IW8\\WA\\Rest\\ApiRegistrar' => __DIR__ . '/../..' . '/src/Rest/ApiRegistrar.php',
+        'IW8\\WA\\Rest\\ClicksController' => __DIR__ . '/../..' . '/src/Rest/ClicksController.php',
+        'IW8\\WA\\Security\\HttpsEnforcer' => __DIR__ . '/../..' . '/src/Security/HttpsEnforcer.php',
+        'IW8\\WA\\Security\\RateLimiter' => __DIR__ . '/../..' . '/src/Security/RateLimiter.php',
+        'IW8\\WA\\Security\\TokenAuthenticator' => __DIR__ . '/../..' . '/src/Security/TokenAuthenticator.php',
+        'IW8\\WA\\Services\\LimitsProvider' => __DIR__ . '/../..' . '/src/Services/LimitsProvider.php',
+        'IW8\\WA\\Services\\TimeProvider' => __DIR__ . '/../..' . '/src/Services/TimeProvider.php',
+        'IW8\\WA\\Support\\Env' => __DIR__ . '/../..' . '/src/Support/Env.php',
+        'IW8\\WA\\Validation\\CursorCodec' => __DIR__ . '/../..' . '/src/Validation/CursorCodec.php',
+        'IW8\\WA\\Validation\\RequestValidator' => __DIR__ . '/../..' . '/src/Validation/RequestValidator.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

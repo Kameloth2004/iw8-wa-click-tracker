@@ -49,9 +49,6 @@ class Menu
             return;
         }
 
-        require_once __DIR__ . "/Pages/ClicksPage.php";
-        require_once __DIR__ . "/Pages/DiagnosticsPage.php";
-        require_once __DIR__ . "/Pages/SettingsPage.php";
         $this->clicks_page = new \IW8\WaClickTracker\Admin\Pages\ClicksPage();
         $this->diagnostics_page = new \IW8\WaClickTracker\Admin\Pages\DiagnosticsPage();
         $this->settings_page = new \IW8\WaClickTracker\Admin\Pages\SettingsPage();

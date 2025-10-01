@@ -4,7 +4,7 @@ Tags: whatsapp, tracking, analytics, clicks, reports, statistics
 Requires at least: 6.0
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.4.1
+Stable tag: 1.4.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -97,3 +97,9 @@ Este plugin está em desenvolvimento ativo. Para contribuir ou reportar bugs, vi
 * **GitHub**: [Issues](https://github.com/iw8/iw8-wa-click-tracker/issues)
 * **Documentação**: [Wiki](https://github.com/iw8/iw8-wa-click-tracker/wiki)
 * **Website**: [https://iw8.dev](https://iw8.dev)
+
+= 1.4.3 =
+* Fix: relatórios exibiam linhas vazias — ajuste no `ClickRepository::list()` para retornar objetos/arrays corretamente.
+* Fix: captura de texto visível no `tracker.js` (aria-label/title/alt/innerText) e envio robusto para AJAX.
+* Fix: inserção de cliques restaurada (`insertClick`) + logs de depuração mais claros.
+* Dev: limpeza de código em páginas de admin e SQL preparado de forma segura.

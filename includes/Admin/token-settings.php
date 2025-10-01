@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /* ARQUIVO: wp-content/plugins/iw8-wa-click-tracker/includes/admin/token-settings.php
  * IW8 Click Tracker — Página “API Token”
  *
@@ -104,7 +104,7 @@ function iw8ct_handle_export_token()
         'updated'  => gmdate('c'),
         'plugin'   => array(
             'name'    => 'iw8-wa-click-tracker',
-            'version' => defined('IW8_WA_CT_VERSION') ? IW8_WA_CT_VERSION : '1.4.0',
+            'version' => defined('IW8_WA_CT_VERSION') ? IW8_WA_CT_VERSION : '1.4.3',
         ),
     );
 

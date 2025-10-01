@@ -1,236 +1,173 @@
 /**
- * JavaScript para rastreamento de cliques no WhatsApp
- *
+ * IW8 – Rastreador de Cliques WhatsApp (Frontend)
  * @package IW8_WaClickTracker
- * @version 1.3.0-rev
+ * @version 1.3.0-rev3
  */
-
 (function () {
-  "use strict";
+  if (!window || !document) return;
 
-  const hasData = typeof window.iw8WaData !== "undefined";
-  const config = hasData ? window.iw8WaData : {};
-  const dbg = !!config.debug;
+  const cfg = window.iw8WaData || {};
+  const dbg = !!cfg.debug;
+  const noBeacon = !!cfg.noBeacon;
+  const ajaxUrl = cfg.ajax_url || window.ajaxurl || "";
+  const nonce = cfg.nonce || "";
+  const userId = parseInt(cfg.user_id || 0, 10) || 0;
 
-  // helpers de log (ficam mudos quando debug=false)
+  // log helpers
   const log = (...a) => {
-    if (dbg) console.log(...a);
+    if (dbg) console.log("[IW8-Track]", ...a);
   };
   const warn = (...a) => {
-    if (dbg) console.warn(...a);
-  };
-  const err = (...a) => {
-    if (dbg) console.error(...a);
+    if (dbg) console.warn("[IW8-Track]", ...a);
   };
 
-  // se não tiver dados, saia em silêncio
-  if (!hasData) return;
+  // detectar links WhatsApp
+  const isWhatsAppLink = (href) => {
+    if (!href) return false;
+    return (
+      /(^|\b)(https?:\/\/)?(api\.whatsapp\.com|wa\.me)\//i.test(href) ||
+      /^whatsapp:\/\//i.test(href)
+    );
+  };
 
-  // --- utils ---
-  const onlyDigits = (s) =>
-    typeof s === "string" ? s.replace(/\D+/g, "") : "";
-  const phoneDigits = onlyDigits(config.phone || "");
-
-  // dedupe por URL (2s)
-  const sentUrls = Object.create(null);
-
-  // Verificação robusta de alvo WhatsApp para o telefone configurado
-  const isTargetWhatsAppUrl = (rawUrl) => {
-    if (!rawUrl || typeof rawUrl !== "string" || !phoneDigits) return false;
-
+  // construir rótulo amigável
+  const getLabel = (el, url) => {
+    if (!el) return "";
+    const txt =
+      (el.getAttribute && el.getAttribute("aria-label")) ||
+      el.title ||
+      el.alt ||
+      el.innerText ||
+      el.textContent ||
+      "";
+    const cleaned = (txt || "").trim().replace(/\s+/g, " ").substring(0, 500);
+    if (cleaned) return cleaned;
     try {
-      const u = new URL(rawUrl, window.location.href);
-      const scheme = (u.protocol || "").replace(":", "").toLowerCase(); // http/https/whatsapp
-      const host = (u.hostname || "").toLowerCase(); // api.whatsapp.com / wa.me
-      const path = u.pathname || ""; // /send /message/xxx /<phone>
-      const q = u.searchParams;
-
-      // whatsapp://send?phone=...
-      if (scheme === "whatsapp") {
-        const qp = onlyDigits(q.get("phone") || "");
-        return qp === phoneDigits;
-      }
-
-      // api.whatsapp.com
-      if (host === "api.whatsapp.com") {
-        // /send?phone=...
-        if (path === "/send") {
-          const qp = onlyDigits(q.get("phone") || "");
-          return qp === phoneDigits;
-        }
-        // /message/<code> (aceito)
-        if (path.startsWith("/message/")) {
-          return true;
-        }
-        return false;
-      }
-
-      // wa.me
-      if (host === "wa.me") {
-        // /<phone>
-        const m = path.match(/^\/(?:\+|%2B)?(\d{6,20})$/i);
-        if (m) {
-          return m[1] === phoneDigits;
-        }
-        // /message/<code> (aceito)
-        if (path.startsWith("/message/")) {
-          return true;
-        }
-        return false;
-      }
+      const u = new URL(url, window.location.href);
+      return (u.searchParams.get("text") || u.pathname || "").substring(0, 500);
     } catch (_) {
-      // fallback com regex se URL() falhar (URLs malformadas)
-      const p = phoneDigits.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-      const re = new RegExp(
-        "^(" +
-          // api.whatsapp.com/send com phone em qualquer ordem da query
-          "https?:\\/\\/api\\.whatsapp\\.com\\/send(?:\\?(?=[^#]*\\bphone=(?:\\+|%2B)?" +
-          p +
-          ")[^#]*)?" +
-          "|" +
-          // api.whatsapp.com/message/<code>
-          "https?:\\/\\/api\\.whatsapp\\.com\\/message\\/[^#\\s]+" +
-          "|" +
-          // wa.me/<phone>
-          "https?:\\/\\/wa\\.me\\/(?:\\+|%2B)?" +
-          p +
-          "(?:\\?[^#]*)?" +
-          "|" +
-          // wa.me/message/<code>
-          "https?:\\/\\/wa\\.me\\/message\\/[^#\\s]+" +
-          "|" +
-          // whatsapp://send?phone=...
-          "whatsapp:\\/\\/send(?:\\?(?=[^#]*\\bphone=(?:\\+|%2B)?" +
-          p +
-          ")[^#]*)?" +
-          ")$",
-        "i"
-      );
-      return re.test(rawUrl);
+      return "";
     }
-
-    return false;
   };
 
-  // Extrai URL de diversos tipos de elementos
-  const extractUrl = (element) => {
-    if (!element) return null;
-    if (element.href) return element.href;
+  // dedupe por hash simples da URL
+  const seen = new Set();
+  const keyFor = (href) => (href || "").replace(/[#?].*$/, "").toLowerCase();
 
-    const onclick = element.getAttribute && element.getAttribute("onclick");
-    if (onclick) {
-      const m = onclick.match(/https?:\/\/[^'"\s)]+/i);
-      if (m) return m[0];
-    }
-
-    const dataHref =
-      element.getAttribute &&
-      (element.getAttribute("data-href") || element.getAttribute("data-url"));
-    return dataHref || null;
-  };
-
-  // Envia o clique (fire-and-forget)
+  // envio com fallback
   const sendClick = (payload) => {
-    const now = Date.now();
-    const url = payload.url;
+    const body = new FormData();
+    body.append("action", "iw8_wa_click");
+    body.append("_ajax_nonce", nonce);
+    body.append("data", JSON.stringify(payload));
 
-    // dedupe simples por 2s
-    if (sentUrls[url] && now - sentUrls[url] < 2000) {
-      log("[IW8 Track] Clique ignorado (duplicado):", url);
-      return;
-    }
-    sentUrls[url] = now;
-
-    // guarda obrigatórios
-    if (!config.ajax_url || !config.action || !config.nonce) {
-      warn("[IW8 Track] Config incompleta para envio", {
-        ajax_url: config.ajax_url,
-        action: config.action,
-        nonce: !!config.nonce,
-      });
+    const url = ajaxUrl || window.ajaxurl || "";
+    if (!url) {
+      warn("ajax_url ausente");
       return;
     }
 
-    const data = {
-      ...payload,
-      action: config.action,
-      nonce: config.nonce,
-    };
+    // beacon
+    if (!noBeacon && navigator && typeof navigator.sendBeacon === "function") {
+      try {
+        const b = new URLSearchParams();
+        b.append("action", "iw8_wa_click");
+        b.append("_ajax_nonce", nonce);
+        b.append("data", JSON.stringify(payload));
+        const ok = navigator.sendBeacon(url, b);
+        if (ok) {
+          log("enviado via beacon");
+          return;
+        }
+      } catch (e) {
+        /* continua */
+      }
+    }
 
-    const params = new URLSearchParams();
-    Object.keys(data).forEach((k) => {
-      const v = data[k];
-      if (v !== null && v !== undefined) params.append(k, v);
-    });
+    // fetch keepalive
+    if (window.fetch) {
+      fetch(url, {
+        method: "POST",
+        body,
+        credentials: "same-origin",
+        keepalive: true,
+      })
+        .then(() => log("enviado via fetch"))
+        .catch(() => warn("falha fetch"));
+      return;
+    }
 
-    fetch(config.ajax_url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      },
-      body: params.toString(),
-      keepalive: true,
-      cache: "no-store",
-      credentials: "same-origin",
-    }).catch(() => {
-      /* silencioso */
-    });
-
-    log("[IW8 Track] Disparo de clique enviado:", url);
+    // XHR
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url, true);
+      xhr.onload = function () {
+        log("enviado via xhr");
+      };
+      xhr.onerror = function () {
+        warn("falha xhr");
+      };
+      xhr.send(body);
+    } catch (e) {
+      warn("falha geral envio");
+    }
   };
 
-  // Captura cliques (anchor, button, data-href/url, onclick)
-  const captureClick = (event) => {
-    const target = event.target;
-    const clickable =
-      target &&
-      target.closest &&
-      target.closest(
-        'a, button, [role="button"], [onclick], [data-href], [data-url]'
-      );
-    if (!clickable) return;
+  // delegação
+  const handler = (evt) => {
+    try {
+      const clickable = evt.target.closest("a, area");
+      if (!clickable) return;
 
-    const url = extractUrl(clickable);
-    if (!url) return;
+      const href = clickable.getAttribute("href") || "";
+      if (!isWhatsAppLink(href)) return;
 
-    if (!isTargetWhatsAppUrl(url)) return;
+      const key = keyFor(href);
+      if (seen.has(key)) {
+        log("dedupe", key);
+        return;
+      }
+      seen.add(key);
 
-    const payload = {
-      url,
-      page_url: window.location.href,
-      element_tag: clickable.tagName
-        ? clickable.tagName.toLowerCase()
-        : "unknown",
-      element_text: (clickable.textContent || "").trim().substring(0, 500),
-    };
+      const url = href;
+      const payload = {
+        url,
+        page_url: window.location.href,
+        element_tag: clickable.tagName
+          ? clickable.tagName.toUpperCase()
+          : "UNKNOWN",
+        element_text: getLabel(clickable, url),
+        user_agent: navigator.userAgent || "",
+        user_id: userId,
+      };
 
-    sendClick(payload);
+      sendClick(payload);
+    } catch (e) {
+      warn("erro handler", e);
+    }
   };
 
-  // Rastreamento de aberturas programáticas (window.open)
-  const trackWindowOpen = (url, context) => {
-    if (!url || typeof url !== "string") return;
-    if (!isTargetWhatsAppUrl(url)) return;
+  document.addEventListener("click", handler, true);
+  document.addEventListener("auxclick", handler, true);
 
-    sendClick({
-      url,
-      page_url: window.location.href,
-      element_tag: context || "WINDOW.OPEN",
-      element_text: "Abertura de janela",
-    });
+  // patch window.open (melhora compat)
+  const _open = window.open;
+  window.open = function (...args) {
+    try {
+      const u = args && args[0] ? String(args[0]) : "";
+      if (isWhatsAppLink(u)) {
+        // dispara um evento synthetic para aproveitar mesma lógica
+        const a = document.createElement("a");
+        a.href = u;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return _open ? _open.apply(window, args) : null;
   };
 
-  // Patch leve de window.open (NÃO tocamos em location.assign/replace)
-  const originalWindowOpen = window.open;
-  window.open = function (url, target, features) {
-    if (typeof url === "string") trackWindowOpen(url, "WINDOW.OPEN");
-    return originalWindowOpen.call(this, url, target, features);
-  };
-
-  // Delegation de cliques (inclui middle-click via auxclick)
-  document.addEventListener("click", captureClick, true);
-  document.addEventListener("auxclick", captureClick, true);
-
-  log("[IW8 Track] Inicializado com telefone:", config.phone);
-  log("[IW8 Track] Delegation ativo (click/auxclick) + patch window.open");
+  log("delegation pronta (click/auxclick) + patch window.open");
 })();

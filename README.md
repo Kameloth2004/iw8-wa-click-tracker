@@ -147,7 +147,7 @@ Sem esse header ou com token inválido → **401**.
 - Sem retrocesso (sem *seek backward*).
 
 ### Cabeçalhos de Resposta
-- `X-Service-Version: 1.4.0`
+- `X-Service-Version:  1.4.3`
 - `X-Cursor-Semantics: forward-only`
 - `X-RateLimit-*` (ver acima)
 

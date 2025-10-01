@@ -1,0 +1,118 @@
+<?php
+namespace IW8\WaClickTracker\Database;
+if (!defined('ABSPATH')) { exit; }
+
+class ClickRepository {
+    private function resolveTableName() {
+        global $wpdb;
+        $new = $wpdb->prefix . 'iw8_wa_clicks';
+        $old = $wpdb->prefix . 'wa_clicks';
+        if ($this->tableExists($new)) return $new;
+        if ($this->tableExists($old)) return $old;
+        return $new;
+    }
+    private function tableExists($table) {
+        global $wpdb;
+        $like = $wpdb->esc_like($table);
+        $sql = "SHOW TABLES LIKE %s";
+        $found = $wpdb->get_var($wpdb->prepare($sql, $like));
+        return is_string($found);
+    }
+    private function discoverSchema($table) {
+        global $wpdb;
+        $cols = array();
+        $rows = $wpdb->get_results("SHOW COLUMNS FROM `{$table}`", ARRAY_A);
+        if (is_array($rows)) {
+            foreach ($rows as $r) { if (isset($r['Field'])) { $cols[] = (string)$r['Field']; } }
+        }
+        $clickedCol = in_array('clicked_at',$cols,true)?'clicked_at':(in_array('created_at',$cols,true)?'created_at':null);
+        return array('columns'=>$cols,'clickedCol'=>$clickedCol);
+    }
+    private function selectFields() {
+        return array('id','clicked_at','url','page_url','element_tag','element_text','user_agent','user_id');
+    }
+    private function normalizeFilters($filters,$schema) {
+        $f = array(
+            'date_from'=> isset($filters['date_from'])?(string)$filters['date_from']:null,
+            'date_to'  => isset($filters['date_to'])  ?(string)$filters['date_to']  :null,
+            'page_url' => isset($filters['page_url']) ?(string)$filters['page_url'] :null,
+            'element_tag'=> isset($filters['element_tag'])?(string)$filters['element_tag']:null,
+            'user_id'  => isset($filters['user_id'])  ?(int)$filters['user_id']   :null,
+            'order'    => (isset($filters['order']) && strtolower((string)$filters['order'])==='asc') ? 'ASC' : 'DESC',
+        );
+        if (!$f['date_from']) $f['date_from'] = gmdate('Y-m-d', strtotime('-30 days'));
+        if (!$f['date_to'])   $f['date_to']   = gmdate('Y-m-d');
+        $f['_hasDate'] = !empty($schema['clickedCol']);
+        return $f;
+    }
+    public function list($filters=array(), $pagination=array()) {
+        global $wpdb;
+        $table = $this->resolveTableName();
+        if (!$this->tableExists($table)) { return array(); }
+        $schema = $this->discoverSchema($table);
+        $clickedCol = $schema['clickedCol'];
+        $f = $this->normalizeFilters(is_array($filters)?$filters:array(), $schema);
+        $limit = isset($pagination['limit']) ? max(1,(int)$pagination['limit']) : 100;
+        $limit = min($limit,1000);
+        $fields = $this->selectFields();
+        $select = array();
+        $cols = $schema['columns'];
+        foreach ($fields as $fld) {
+            if ($fld==='clicked_at') {
+                if ($clickedCol==='clicked_at' && in_array('clicked_at',$cols,true)) {
+                    $select[]='`clicked_at`';
+                } elseif ($clickedCol==='created_at' && in_array('created_at',$cols,true)) {
+                    $select[]='`created_at` AS `clicked_at`';
+                }
+            } elseif (in_array($fld,$cols,true)) {
+                $select[]="`{$fld}`";
+            }
+        }
+        if (empty($select)) { $select[] = in_array('id',$cols,true)?'`id`':'1 as id'; }
+        $selectSql = implode(', ',$select);
+        $where = array(); $params=array();
+        if ($f['_hasDate']) {
+            $where[] = "`{$clickedCol}` >= %s"; $params[] = $f['date_from'].' 00:00:00';
+            $where[] = "`{$clickedCol}` <= %s"; $params[] = $f['date_to'].' 23:59:59';
+        }
+        if (!empty($f['page_url']) && in_array('page_url',$cols,true)) { $where[]="`page_url` LIKE %s"; $params[] = trailingslashit($f['page_url']).'%'; }
+        if (!empty($f['element_tag']) && in_array('element_tag',$cols,true)) { $where[]="`element_tag` = %s"; $params[] = $f['element_tag']; }
+        if (!empty($f['user_id']) && in_array('user_id',$cols,true)) { $where[]="`user_id` = %d"; $params[] = (int)$f['user_id']; }
+        $whereSql = empty($where)?'':'WHERE '.implode(' AND ',$where);
+        $orderCol = $clickedCol ?: (in_array('id',$cols,true)?'id':null);
+        $orderSql = $orderCol ? "ORDER BY `{$orderCol}` {$f['order']}" : '';
+        $sql = "SELECT {$selectSql} FROM `{$table}` {$whereSql} {$orderSql} LIMIT %d";
+        $params[]=(int)$limit;
+        $prepared = $wpdb->prepare($sql,$params);
+        $rows = $wpdb->get_results($prepared, ARRAY_A);
+        if (!is_array($rows)) return array();
+        foreach ($rows as &$r) {
+            if (isset($r['clicked_at'])) {
+                $ts=strtotime((string)$r['clicked_at']); if ($ts!==false) { $r['clicked_at']=gmdate('Y-m-d\TH:i:s\Z',$ts); }
+            }
+        }
+        return $rows;
+    }
+    public function countTotals($filters=array()) {
+        global $wpdb;
+        $out = array('total'=>0,'last7'=>0,'last30'=>0);
+        $table = $this->resolveTableName();
+        if (!$this->tableExists($table)) { return (object)$out; }
+        $schema = $this->discoverSchema($table);
+        $clickedCol = $schema['clickedCol'];
+        if (!$clickedCol) { return (object)$out; }
+        $f = $this->normalizeFilters(is_array($filters)?$filters:array(), $schema);
+        $where=array(); $params=array(); $cols=$schema['columns'];
+        if (!empty($f['page_url']) && in_array('page_url',$cols,true)) { $where[]="`page_url` LIKE %s"; $params[]=trailingslashit($f['page_url']).'%'; }
+        if (!empty($f['element_tag']) && in_array('element_tag',$cols,true)) { $where[]="`element_tag` = %s"; $params[]=$f['element_tag']; }
+        if (!empty($f['user_id']) && in_array('user_id',$cols,true)) { $where[]="`user_id` = %d"; $params[]=(int)$f['user_id']; }
+        $whereSql = empty($where)?'':' AND '.implode(' AND ',$where);
+        $sqlTotal = "SELECT COUNT(*) FROM `{$table}` WHERE 1=1 {$whereSql}";
+        $out['total'] = (int)$wpdb->get_var($wpdb->prepare($sqlTotal,$params));
+        $sql7  = "SELECT COUNT(*) FROM `{$table}` WHERE `{$clickedCol}` >= (UTC_TIMESTAMP() - INTERVAL 7 DAY) {$whereSql}";
+        $sql30 = "SELECT COUNT(*) FROM `{$table}` WHERE `{$clickedCol}` >= (UTC_TIMESTAMP() - INTERVAL 30 DAY) {$whereSql}";
+        $out['last7']  = (int)$wpdb->get_var($wpdb->prepare($sql7,$params));
+        $out['last30'] = (int)$wpdb->get_var($wpdb->prepare($sql30,$params));
+        return (object)$out;
+    }
+}

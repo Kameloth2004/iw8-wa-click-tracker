@@ -4,7 +4,7 @@
  * Gerencia atualizações automáticas via GitHub (Plugin Update Checker)
  *
  * @package IW8_WaClickTracker\Core
- * @version 1.4.1
+ * @version 1.4.3
  */
 
 declare(strict_types=1);
@@ -25,8 +25,7 @@ final class Updater
 
     /**
      * Inicializa o Update Checker (idempotente).
-     * Chame uma única vez, por exemplo no arquivo principal:
-     *
+     * Dispare em admin_init:
      *   add_action('admin_init', ['IW8\WaClickTracker\Core\Updater', 'init']);
      */
     public static function init(): void
@@ -37,10 +36,11 @@ final class Updater
         self::$booted = true;
 
         try {
-            if (!self::loadPuc()) {
+            $factory = self::resolveFactory();
+            if ($factory === null) {
                 // Não fatal: apenas não inicializa updates
                 if (function_exists('error_log')) {
-                    error_log('IW8_WA Updater: PUC não disponível, updates desativados.');
+                    error_log('IW8_WA Updater: Plugin Update Checker não encontrado (vendor/plugin-update-checker ausente?). Updates desativados.');
                 }
                 return;
             }
@@ -62,12 +62,8 @@ final class Updater
             // Slug correto SEMPRE via plugin_basename (evita erro de slug duplicado)
             $slug = plugin_basename($pluginFile); // ex: "iw8-wa-click-tracker/iw8-wa-click-tracker.php"
 
-            // Monte o checker apontando para o repositório GitHub (PUC lida com tags/releases)
-            self::$checker = \Puc_v5_Factory::buildUpdateChecker(
-                'https://github.com/Kameloth2004/iw8-wa-click-tracker',
-                $pluginFile,
-                $slug
-            );
+            // Monte o checker apontando para o repositório GitHub
+            self::$checker = $factory('https://github.com/Kameloth2004/iw8-wa-click-tracker', $pluginFile, $slug);
 
             // Branch padrão
             if (method_exists(self::$checker, 'setBranch')) {
@@ -79,7 +75,7 @@ final class Updater
                 self::$checker->getVcsApi()->enableReleaseAssets();
             }
 
-            // Autenticação opcional (se usar repo privado ou limitar rate-limit)
+            // Auth opcional (repo privado / rate limit)
             self::maybeConfigureAuth(self::$checker);
 
             if (function_exists('error_log')) {
@@ -93,28 +89,38 @@ final class Updater
     }
 
     /**
-     * Carrega o Plugin Update Checker v5.6.
-     * Tenta primeiro via Composer (vendor/), depois fallback para pasta legada.
+     * Resolve a factory do PUC, tentando:
+     * 1) Namespaced (Composer): YahnisElsts\PluginUpdateChecker\v5\PucFactory
+     * 2) Loader vendor: vendor/yahnis-elsts/plugin-update-checker/load-v5p6.php
+     * 3) Fallback legado: plugin-update-checker/load-v5p6.php | plugin-update-checker.php
+     *
+     * @return callable|null fn(string $repoUrl, string $pluginFile, string $slug): object
      */
-    private static function loadPuc(): bool
+    private static function resolveFactory(): ?callable
     {
-        // Já disponível?
-        if (class_exists('\Puc_v5_Factory')) {
-            return true;
+        // 1) Namespaced via Composer (recomendado)
+        if (class_exists('\YahnisElsts\PluginUpdateChecker\v5\PucFactory')) {
+            return static function (string $repoUrl, string $pluginFile, string $slug) {
+                /** @var \YahnisElsts\PluginUpdateChecker\v5\PucFactory $nsFactory */
+                $nsFactory = '\YahnisElsts\PluginUpdateChecker\v5\PucFactory';
+                return $nsFactory::buildUpdateChecker($repoUrl, $pluginFile, $slug);
+            };
         }
 
-        // 1) Tentar via vendor (Composer)
+        // 2) Tentar carregar o loader do pacote no vendor/
         if (defined('IW8_WA_CLICK_TRACKER_PLUGIN_DIR')) {
             $vendorLoader = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'vendor/yahnis-elsts/plugin-update-checker/load-v5p6.php';
             if (is_readable($vendorLoader)) {
                 require_once $vendorLoader;
             }
-            if (class_exists('\Puc_v5_Factory')) {
-                return true;
-            }
+        }
+        if (class_exists('\Puc_v5_Factory')) {
+            return static function (string $repoUrl, string $pluginFile, string $slug) {
+                return \Puc_v5_Factory::buildUpdateChecker($repoUrl, $pluginFile, $slug);
+            };
         }
 
-        // 2) Fallback legado (se você mantiver a pasta antiga)
+        // 3) Fallback para pasta legada (se você mantiver no projeto)
         if (defined('IW8_WA_CLICK_TRACKER_PLUGIN_DIR')) {
             $legacy1 = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'plugin-update-checker/load-v5p6.php';
             $legacy2 = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'plugin-update-checker/plugin-update-checker.php';
@@ -124,8 +130,14 @@ final class Updater
                 require_once $legacy2;
             }
         }
+        if (class_exists('\Puc_v5_Factory')) {
+            return static function (string $repoUrl, string $pluginFile, string $slug) {
+                return \Puc_v5_Factory::buildUpdateChecker($repoUrl, $pluginFile, $slug);
+            };
+        }
 
-        return class_exists('\Puc_v5_Factory');
+        // Nada encontrado
+        return null;
     }
 
     /**
