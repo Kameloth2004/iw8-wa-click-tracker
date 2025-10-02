@@ -4,7 +4,7 @@
  * Plugin Name: IW8 – Rastreador de Cliques WhatsApp
  * Plugin URI: https://github.com/iw8/iw8-wa-click-tracker
  * Description: Plugin para rastrear cliques em links do WhatsApp e gerar relatórios detalhados
- * Version: 1.4.3
+ * Version:  1.4.4
  * Requires at least: 6.0
  * Tested up to: 6.6
  * Requires PHP: 7.4
@@ -30,7 +30,7 @@ if (!defined('IW8_WA_CT_VERSION')) {
     $data = function_exists('get_file_data')
         ? get_file_data(__FILE__, array('Version' => 'Version'), 'plugin')
         : array('Version' => '1.4.3');
-    define('IW8_WA_CT_VERSION', !empty($data['Version']) ? $data['Version'] : '1.4.3');
+    define('IW8_WA_CT_VERSION', !empty($data['Version']) ? $data['Version'] : '1.4.4');
 }
 
 /** === Constantes base === */

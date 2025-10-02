@@ -104,7 +104,7 @@ function iw8ct_handle_export_token()
         'updated'  => gmdate('c'),
         'plugin'   => array(
             'name'    => 'iw8-wa-click-tracker',
-            'version' => defined('IW8_WA_CT_VERSION') ? IW8_WA_CT_VERSION : '1.4.3',
+            'version' => defined('IW8_WA_CT_VERSION') ? IW8_WA_CT_VERSION : '1.4.4',
         ),
     );
 

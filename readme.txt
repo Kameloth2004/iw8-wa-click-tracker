@@ -4,7 +4,7 @@ Tags: whatsapp, tracking, analytics, clicks, reports, statistics
 Requires at least: 6.0
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.4.3
+Stable tag: 1.4.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -76,6 +76,14 @@ Sim, o plugin foi desenvolvido para funcionar com Elementor, WPBakery, Beaver Bu
 4. Relatórios e gráficos
 
 == Changelog ==
+
+= 1.4.4 - 2025-10-02 =
+* Autenticação: aceita iw8_wa_click_token, iw8_click_token e iw8_wa_domain_token (prioridade novo→legados).
+* Endpoints: /wp-json/iw8-wa/v1/ping e /wp-json/iw8-wa/v1/clicks validados com header X-IW8-Token.
+* Compatibilidade: extração de header case-insensitive; revisão de possíveis casos sensíveis a maiúsculas/minúsculas.
+* Migração segura: comandos WP-CLI para popular opções ausentes, sem alterar banco manualmente.
+* Backward-compat: rotas e cabeçalhos preservados; nenhuma instalação existente é quebrada.
+
 
 = 1.3.0 =
 * Estrutura inicial do plugin
