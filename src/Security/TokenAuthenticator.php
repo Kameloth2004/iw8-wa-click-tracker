@@ -106,6 +106,12 @@ final class TokenAuthenticator
     {
         $tokens = [];
 
+
+        // Hotfix 1.4.4: aceitar tokens novo e legados (iw8_click_token, iw8_wa_click_token, iw8_wa_domain_token)
+        foreach (['iw8_click_token', 'iw8_wa_click_token', 'iw8_wa_domain_token'] as $opt_name) {
+            $opt = get_option($opt_name);
+            if (is_string($opt) && $opt !== '') { $tokens[] = $opt; }
+        }
         if (defined('IW8_WA_DEV_TOKEN')) {
             $dev = constant('IW8_WA_DEV_TOKEN'); // evita aviso do linter
             if (is_string($dev) && $dev !== '') {
