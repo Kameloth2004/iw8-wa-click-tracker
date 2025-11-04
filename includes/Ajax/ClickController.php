@@ -112,12 +112,25 @@ class ClickController
         $payload['element_text'] = isset($post['element_text']) ? $post['element_text'] : ($payload['element_text'] ?? '');
         $payload['user_id']      = isset($post['user_id']) ? $post['user_id'] : ($payload['user_id'] ?? 0);
 
+        // ⬇️ NOVO: aceitar geo opcional do POST (se você decidir enviar do front)
+        $payload['country']      = isset($post['country']) ? $post['country'] : ($payload['country'] ?? '');
+        $payload['region']       = isset($post['region'])  ? $post['region']  : ($payload['region'] ?? '');
+        $payload['city']         = isset($post['city'])    ? $post['city']    : ($payload['city'] ?? '');
+
         // === Sanitização ===
         $url          = esc_url_raw((string) ($payload['url'] ?? ''));
         $page_url     = esc_url_raw((string) ($payload['page_url'] ?? ''));
         $element_tag  = sanitize_text_field((string) ($payload['element_tag'] ?? ''));
         $element_text = wp_strip_all_tags((string) ($payload['element_text'] ?? ''));
         $user_id      = (int) ($payload['user_id'] ?? 0);
+
+        // ⬇️ NOVO: sanitizar geo do POST (se veio)
+        $geo_from_post = array(
+            'country' => $this->sanitize_geo((string) ($payload['country'] ?? '')),
+            'region'  => $this->sanitize_geo((string) ($payload['region']  ?? '')),
+            'city'    => $this->sanitize_geo((string) ($payload['city']    ?? '')),
+            'source'  => 'post',
+        );
 
         if ($url === '') {
             wp_send_json_error(array('ok' => false, 'error' => 'missing_url'), 400);
@@ -158,8 +171,15 @@ class ClickController
             'clicked_at'   => current_time('mysql'),
         );
 
+        // ⬇️ NOVO: derivar geo de headers de proxy/CDN (sem IP, sem PII). Fallback: geo do POST.
+        $geo = $this->resolve_geo_from_headers();
+        if (empty($geo['country']) && empty($geo['region']) && empty($geo['city'])) {
+            $geo = $geo_from_post; // só usa se você optar por enviar do front
+        }
+
         if ($debug && function_exists('error_log')) {
             error_log('IW8_WA_CLICK_TRACKER DEBUG: Data pronto p/ insert: ' . wp_json_encode($data));
+            error_log('IW8_WA_CLICK_TRACKER DEBUG: GEO derivado: ' . wp_json_encode($geo));
         }
 
         // === Inserção ===
@@ -183,8 +203,25 @@ class ClickController
         if ($debug && function_exists('error_log')) {
             error_log('IW8_WA_CLICK_TRACKER DEBUG: Clique inserido. ID=' . (int) $result);
         }
+        
+        // Salva cidade / estado / país (metadados)
+if (function_exists('iw8_wa_add_click_meta')) {
+    iw8_wa_add_click_meta((int)$result, 'country', $geo['country'] ?? '');
+    iw8_wa_add_click_meta((int)$result, 'region',  $geo['region']  ?? '');
+    iw8_wa_add_click_meta((int)$result, 'city',    $geo['city']    ?? '');
+}
 
-        wp_send_json_success(array('ok' => true, 'id' => (int) $result));
+        // ⬇️ NOVO: retornar geo NO RESPONSE (para teste/validação). Não persiste ainda.
+        wp_send_json_success(array(
+            'ok'   => true,
+            'id'   => (int) $result,
+            'geo'  => array(
+                'country' => $geo['country'] ?? '',
+                'region'  => $geo['region']  ?? '',
+                'city'    => $geo['city']    ?? '',
+                'source'  => $geo['source']  ?? '',
+            ),
+        ));
     }
 
 
@@ -202,4 +239,57 @@ class ClickController
         }
         return $ua;
     }
+
+    /**
+     * ⬇️ NOVO: Sanitização simples para campos de geo (sem números/IPs, remove excesso).
+     */
+    private function sanitize_geo(string $s): string
+    {
+        $s = wp_strip_all_tags($s);
+        // mantém letras, espaço, hífen, apóstrofo e acentos comuns
+        $s = preg_replace('~[^ \-\p{L}\']+~u', '', $s) ?? '';
+        return trim($s);
+    }
+
+    /**
+     * ⬇️ NOVO: Resolve geo por headers comuns de proxy/CDN (sem armazenar IP).
+     * Prioridade de fontes:
+     *  - Cloudflare: HTTP_CF_IPCOUNTRY (país)
+     *  - Cabeçalhos custom: X-Geo-Country / X-Geo-Region / X-Geo-City
+     *  - Nginx/Proxy custom: X-App-Country / X-App-Region / X-App-City
+     *  - (Opcional futuramente) outros provedores
+     */
+    private function resolve_geo_from_headers(): array
+    {
+        $country = '';
+        $region  = '';
+        $city    = '';
+        $source  = '';
+
+        // Cloudflare country (ISO-2)
+        if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+            $country = $this->sanitize_geo((string) $_SERVER['HTTP_CF_IPCOUNTRY']);
+            $source  = 'cf-header';
+        }
+
+        // Cabeçalhos customizados do seu proxy/CDN (se configurados)
+        $hCountry = $_SERVER['HTTP_X_GEO_COUNTRY'] ?? $_SERVER['HTTP_X_APP_COUNTRY'] ?? null;
+        $hRegion  = $_SERVER['HTTP_X_GEO_REGION']  ?? $_SERVER['HTTP_X_APP_REGION']  ?? null;
+        $hCity    = $_SERVER['HTTP_X_GEO_CITY']    ?? $_SERVER['HTTP_X_APP_CITY']    ?? null;
+
+        if ($hCountry || $hRegion || $hCity) {
+            $country = $this->sanitize_geo((string) ($hCountry ?? $country));
+            $region  = $this->sanitize_geo((string) ($hRegion  ?? ''));
+            $city    = $this->sanitize_geo((string) ($hCity    ?? ''));
+            $source  = $source ?: 'proxy-headers';
+        }
+
+        return array(
+            'country' => $country,
+            'region'  => $region,
+            'city'    => $city,
+            'source'  => $source,
+        );
+    }
 }
+
