@@ -25,6 +25,9 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Carrega helper de metadados (cidade/estado/país)
+require_once __DIR__ . '/includes/meta.php';
+
 /** === Versão centralizada pela própria header tag === */
 if (!defined('IW8_WA_CT_VERSION')) {
     $data = function_exists('get_file_data')
@@ -337,3 +340,15 @@ if (is_admin()) {
         require_once $adminBootstrap;
     }
 }
+// Enfileira o geo.js no frontend (anexa city/region/country ao payload do clique)
+add_action('wp_enqueue_scripts', function () {
+    $path = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'assets/js/geo.js';
+    $ver  = is_readable($path) ? filemtime($path) : IW8_WA_CT_VERSION;
+    wp_enqueue_script(
+        'iw8-wa-geo',
+        IW8_WA_CLICK_TRACKER_PLUGIN_URL . 'assets/js/geo.js',
+        array('jquery'),
+        $ver,
+        true
+    );
+}, 20);
