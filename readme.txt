@@ -49,18 +49,23 @@ O **IW8 – Rastreador de Cliques WhatsApp** é uma solução completa para moni
 == Frequently Asked Questions ==
 
 = O plugin funciona com todos os temas? =
+
 Sim, o plugin é compatível com todos os temas WordPress padrão e a maioria dos temas premium.
 
 = Posso exportar os dados? =
+
 Sim, o plugin oferece funcionalidade de exportação em formato CSV para análise externa.
 
 = O plugin afeta a performance do site? =
+
 Não, o código foi otimizado para ter impacto mínimo na velocidade do site.
 
 = Posso rastrear cliques em dispositivos móveis? =
+
 Sim, o plugin rastreia cliques em todos os dispositivos e navegadores.
 
 = O plugin é compatível com page builders? =
+
 Sim, o plugin foi desenvolvido para funcionar com Elementor, WPBakery, Beaver Builder e outros.
 
 == Screenshots ==
@@ -82,40 +87,34 @@ Sim, o plugin foi desenvolvido para funcionar com Elementor, WPBakery, Beaver Bu
 = 1.4.4 - 2025-10-02 =
 * Autenticação: aceita iw8_wa_click_token, iw8_click_token e iw8_wa_domain_token (prioridade novo→legados).
 * Endpoints: /wp-json/iw8-wa/v1/ping e /wp-json/iw8-wa/v1/clicks validados com header X-IW8-Token.
-* Compatibilidade: extração de header case-insensitive.
-* Migração segura: comandos WP-CLI para popular opções ausentes.
-* Backward-compat garantida (rotas e cabeçalhos preservados).
+* Compatibilidade: extração de header case-insensitive; revisão de possíveis casos sensíveis a maiúsculas/minúsculas.
+* Migração segura: comandos WP-CLI para popular opções ausentes, sem alterar banco manualmente.
+* Backward-compat: rotas e cabeçalhos preservados; nenhuma instalação existente é quebrada.
 
-= 1.4.3 - 2025-09-01 =
-* Fix: relatórios exibiam linhas vazias — ajuste no ClickRepository::list().
-* Fix: captura de texto visível no tracker.js (aria-label/title/alt/innerText).
-* Fix: inserção de cliques restaurada (insertClick) + logs de depuração mais claros.
-* Dev: limpeza de código em páginas de admin e SQL preparado de forma segura.
+
+= 1.3.0 =
+* Estrutura inicial do plugin
+* Classes base implementadas
+* Sistema de autoload configurado
+* Preparação para funcionalidades futuras
 
 == Upgrade Notice ==
 
-= 1.4.5 =
-Ativa envio em lotes para o Hub, cron de 6h e geolocalização. Configure o X-IW8-Token por domínio e valide com feature.php.
-
-= 1.4.4 =
-Compatibilidade REST revisada e suporte a múltiplos tokens (iw8_wa_click_token, iw8_click_token, iw8_wa_domain_token).
-
 = 1.3.0 =
-Versão inicial do plugin com estrutura base implementada.
+Esta é a versão inicial do plugin com estrutura base implementada. Funcionalidades completas serão adicionadas nas próximas versões.
 
 == Development ==
 
-Este plugin está em desenvolvimento ativo. Para contribuir ou reportar bugs, visite nosso [repositório no GitHub](https://github.com/Kameloth2004/iw8-wa-click-tracker).
+Este plugin está em desenvolvimento ativo. Para contribuir ou reportar bugs, visite nosso [repositório no GitHub](https://github.com/iw8/iw8-wa-click-tracker).
 
 == Support ==
 
-* **GitHub**: [Issues](https://github.com/Kameloth2004/iw8-wa-click-tracker/issues)
-* **Documentação**: [Wiki](https://github.com/Kameloth2004/iw8-wa-click-tracker/wiki)
+* **GitHub**: [Issues](https://github.com/iw8/iw8-wa-click-tracker/issues)
+* **Documentação**: [Wiki](https://github.com/iw8/iw8-wa-click-tracker/wiki)
 * **Website**: [https://iw8.dev](https://iw8.dev)
 
-== Links ==
-
-* **Hub ingest:** `/public/api/ingest.php` (servidor ClickTracker Hub)
-* **Banco Hub:** `iw8apicom_iw8_clicktracker_hub`, tabela `click_events`
-
-Para o changelog detalhado, consulte o arquivo `CHANGELOG.md` incluído no repositório.
+= 1.4.3 =
+* Fix: relatórios exibiam linhas vazias — ajuste no `ClickRepository::list()` para retornar objetos/arrays corretamente.
+* Fix: captura de texto visível no `tracker.js` (aria-label/title/alt/innerText) e envio robusto para AJAX.
+* Fix: inserção de cliques restaurada (`insertClick`) + logs de depuração mais claros.
+* Dev: limpeza de código em páginas de admin e SQL preparado de forma segura.
