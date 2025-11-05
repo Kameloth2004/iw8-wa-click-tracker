@@ -2,9 +2,9 @@
 Contributors: iw8
 Tags: whatsapp, tracking, analytics, clicks, reports, statistics
 Requires at least: 6.0
-Tested up to: 6.4
+Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.4.4
+Stable tag: 1.4.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -76,6 +76,13 @@ Sim, o plugin foi desenvolvido para funcionar com Elementor, WPBakery, Beaver Bu
 4. Relatórios e gráficos
 
 == Changelog ==
+
+= 1.4.5 - 2025-10-30 =
+* Envio automático em lotes para o Hub (HubSync::send_batch) com autenticação via X-IW8-Token.
+* Cron interno a cada 6 horas via wp_schedule_event.
+* Coleta de geolocalização (geo_city e geo_region) salva no *_iw8_wa_click_meta.
+* Ajustes de compat REST/headers e logs com finalize_ok.
+* Notas de migração e verificação documentadas (feature.php, Hub click_events).
 
 = 1.4.4 - 2025-10-02 =
 * Autenticação: aceita iw8_wa_click_token, iw8_click_token e iw8_wa_domain_token (prioridade novo→legados).

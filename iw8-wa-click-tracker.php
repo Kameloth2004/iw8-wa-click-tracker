@@ -32,7 +32,7 @@ require_once __DIR__ . '/includes/meta.php';
 if (!defined('IW8_WA_CT_VERSION')) {
     $data = function_exists('get_file_data')
         ? get_file_data(__FILE__, array('Version' => 'Version'), 'plugin')
-        : array('Version' => '1.4.3');
+        : array('Version' => '1.4.5');
     define('IW8_WA_CT_VERSION', !empty($data['Version']) ? $data['Version'] : '1.4.4');
 }
 
