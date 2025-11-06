@@ -1,0 +1,56 @@
+/**
+ * CSS para funcionalidades administrativas
+ * 
+ * @package IW8_WaClickTracker
+ * @version 1.3.0
+ * 
+ * TODO: Implementar estilos:
+ * - Tabelas de dados
+ * - Formulários
+ * - Dashboard widgets
+ * - Responsividade
+ */
+
+/* Estilos básicos para o plugin */
+.iw8-wa-click-tracker {
+    /* TODO: Implementar estilos base */
+}
+
+/* Tabela de cliques */
+.iw8-clicks-table {
+    /* TODO: Implementar estilos da tabela */
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.iw8-clicks-table th,
+.iw8-clicks-table td {
+    /* TODO: Implementar estilos das células */
+    padding: 8px;
+    border: 1px solid #ddd;
+}
+
+/* Formulários */
+.iw8-settings-form {
+    /* TODO: Implementar estilos dos formulários */
+    max-width: 800px;
+}
+
+.iw8-settings-form .form-table th {
+    /* TODO: Implementar estilos dos labels */
+    width: 200px;
+}
+
+/* Dashboard widgets */
+.iw8-dashboard-widget {
+    /* TODO: Implementar estilos dos widgets */
+    margin-bottom: 20px;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    /* TODO: Implementar estilos responsivos */
+    .iw8-clicks-table {
+        font-size: 12px;
+    }
+}
