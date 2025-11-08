@@ -13,6 +13,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+require_once __DIR__ . "/Pages/HubPage.php";
+
 /**
  * Classe Menu
  */
@@ -38,6 +40,13 @@ class Menu
      * @var \IW8\WaClickTracker\Admin\Pages\SettingsPage
      */
     private $settings_page;
+    
+  /**
+ * Instância da página do Hub (Envio automático)
+ *
+ * @var \IW8\WaClickTracker\Admin\Pages\HubPage
+ */
+private $hub_page;
 
     /**
      * Construtor da classe
@@ -55,6 +64,7 @@ class Menu
         $this->clicks_page = new \IW8\WaClickTracker\Admin\Pages\ClicksPage();
         $this->diagnostics_page = new \IW8\WaClickTracker\Admin\Pages\DiagnosticsPage();
         $this->settings_page = new \IW8\WaClickTracker\Admin\Pages\SettingsPage();
+        $this->hub_page = new \IW8\WaClickTracker\Admin\Pages\HubPage();
     }
 
     /**
@@ -109,5 +119,15 @@ class Menu
             'iw8-wa-clicks-settings',
             [$this->settings_page, 'render']
         );
+        
+        // Submenu - Hub (Envio automático)
+add_submenu_page(
+    'iw8-wa-clicks',
+    __('Hub (Envio automático)', 'iw8-wa-click-tracker'),
+    __('Hub (Envio automático)', 'iw8-wa-click-tracker'),
+    'manage_options',
+    'iw8-wa-clicks-hub',
+    [$this->hub_page, 'render']
+);
     }
 }
