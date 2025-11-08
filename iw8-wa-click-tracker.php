@@ -4,7 +4,7 @@
  * Plugin Name: IW8 – Rastreador de Cliques WhatsApp
  * Plugin URI: https://github.com/iw8/iw8-wa-click-tracker
  * Description: Plugin para rastrear cliques em links do WhatsApp e gerar relatórios detalhados
- * Version:  1.4.4
+ * Version:  1.4.5
  * Requires at least: 6.0
  * Tested up to: 6.6
  * Requires PHP: 7.4
@@ -25,12 +25,54 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Carrega helper de metadados (cidade/estado/país)
+require_once __DIR__ . '/includes/meta.php';
+
+// 2.a) Carregar a classe do cron
+require_once __DIR__ . '/includes/Cron/HubSync.php';
+
+// 2.b) Agendar um schedule “6 horas”
+add_filter('cron_schedules', function ($schedules) {
+    if (!isset($schedules['iw8_six_hours'])) {
+        $schedules['iw8_six_hours'] = [
+            'interval' => 6 * 3600,
+            'display'  => __('A cada 6 horas (IW8)', 'iw8-wa-click-tracker'),
+        ];
+    }
+    return $schedules;
+});
+
+// 2.c) Agendar na ativação e limpar na desativação
+register_activation_hook(__FILE__, function () {
+    if (!wp_next_scheduled('iw8_hub_cron_send')) {
+        wp_schedule_event(time() + 600, 'iw8_six_hours', 'iw8_hub_cron_send');
+    }
+});
+register_deactivation_hook(__FILE__, function () {
+    $ts = wp_next_scheduled('iw8_hub_cron_send');
+    if ($ts) {
+        wp_unschedule_event($ts, 'iw8_hub_cron_send');
+    }
+});
+
+// 2.d) Callback do cron
+add_action('iw8_hub_cron_send', function () {
+    \IW8\WaClickTracker\Cron\HubSync::send_batch(100);
+});
+
+// (2) Safety net: agenda o evento se não estiver agendado (roda em page load)
+add_action('admin_init', function () {
+    if (!wp_next_scheduled('iw8_hub_cron_send')) {
+        wp_schedule_event(time() + 300, 'iw8_six_hours', 'iw8_hub_cron_send');
+    }
+});
+
 /** === Versão centralizada pela própria header tag === */
 if (!defined('IW8_WA_CT_VERSION')) {
     $data = function_exists('get_file_data')
         ? get_file_data(__FILE__, array('Version' => 'Version'), 'plugin')
         : array('Version' => '1.4.3');
-    define('IW8_WA_CT_VERSION', !empty($data['Version']) ? $data['Version'] : '1.4.4');
+    define('IW8_WA_CT_VERSION', !empty($data['Version']) ? $data['Version'] : '1.4.5');
 }
 
 /** === Constantes base === */
@@ -337,3 +379,73 @@ if (is_admin()) {
         require_once $adminBootstrap;
     }
 }
+// Enfileira o geo.js no frontend (anexa city/region/country ao payload do clique)
+add_action('wp_enqueue_scripts', function () {
+    $path = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'assets/js/geo.js';
+    $ver  = is_readable($path) ? filemtime($path) : IW8_WA_CT_VERSION;
+    wp_enqueue_script(
+        'iw8-wa-geo',
+        IW8_WA_CLICK_TRACKER_PLUGIN_URL . 'assets/js/geo.js',
+        array('jquery'),
+        $ver,
+        true
+    );
+}, 20);
+
+add_action('admin_notices', function () {
+    if (!current_user_can('manage_options')) return;
+    $ts = wp_next_scheduled('iw8_hub_cron_send');
+    if ($ts) {
+        echo '<div class="notice notice-info"><p>IW8 Hub Cron agendado para: <code>' .
+            esc_html(date_i18n('Y-m-d H:i:s', $ts)) .
+            '</code></p></div>';
+    } else {
+        echo '<div class="notice notice-error"><p>IW8 Hub Cron ainda <strong>não</strong> está agendado.</p></div>';
+    }
+});
+
+// Gatilho manual temporário: ?iw8_hub_run=1 no admin dispara o envio agora
+add_action('admin_init', function () {
+    if (!current_user_can('manage_options')) return;
+    if (!isset($_GET['iw8_hub_run'])) return;
+
+    // Executa o batch imediatamente
+    try {
+        \IW8\WaClickTracker\Cron\HubSync::send_batch(100);
+        add_action('admin_notices', function () {
+            echo '<div class="notice notice-success"><p>IW8 Hub: envio <strong>executado agora</strong>.</p></div>';
+        });
+    } catch (\Throwable $e) {
+        add_action('admin_notices', function () use ($e) {
+            echo '<div class="notice notice-error"><p>IW8 Hub: falha ao executar agora — ' .
+                esc_html($e->getMessage()) . '</p></div>';
+        });
+    }
+});
+
+// DEBUG: acione o envio agora via URL: ?iw8_hub_fire=1&key=SEUSEGREDO
+add_action('init', function () {
+    if (!isset($_GET['iw8_hub_fire'])) {
+        return;
+    }
+    // Proteção simples: exija um "key" conhecido por você
+    $key = isset($_GET['key']) ? (string) $_GET['key'] : '';
+    if ($key !== 'abc123') {
+        status_header(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => 'forbidden']);
+        exit;
+    }
+
+    // Executa o envio imediatamente (batch pequeno)
+    try {
+        \IW8\WaClickTracker\Cron\HubSync::send_batch(50);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => true, 'ran' => 'HubSync::send_batch(50)']);
+    } catch (\Throwable $e) {
+        status_header(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+    exit;
+});
