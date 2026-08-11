@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Classe para logging e debug do plugin
  *
@@ -94,19 +95,21 @@ class Logger
     {
         // Formatar mensagem
         $formatted_message = self::formatMessage($level, $message, $context);
-        
-        // Log no WordPress (se habilitado)
-        if (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG) {
+
+        $is_error_level = in_array($level, [self::LEVEL_ERROR, self::LEVEL_WARNING], true);
+        $debug_enabled  = self::isDebugEnabled();
+
+        // Em produção, não enviar INFO/DEBUG para o error_log global.
+        // Apenas WARNING/ERROR vão para error_log sempre.
+        // INFO/DEBUG só vão para error_log quando o debug do plugin estiver habilitado.
+        if (($is_error_level || $debug_enabled) && function_exists('error_log')) {
             error_log($formatted_message);
         }
-        
-        // Log no sistema (fallback)
-        if (function_exists('error_log')) {
-            error_log($formatted_message);
+
+        // Log personalizado do plugin somente quando explicitamente habilitado.
+        if (defined('IW8_WA_ENABLE_FILE_LOG') && IW8_WA_ENABLE_FILE_LOG) {
+            self::writeToPluginLog($formatted_message);
         }
-        
-        // Log personalizado do plugin (se diretório existir)
-        self::writeToPluginLog($formatted_message);
     }
 
     /**
@@ -127,12 +130,12 @@ class Logger
             $level,
             $message
         );
-        
+
         // Adicionar contexto se existir
         if (!empty($context)) {
             $formatted .= ' | Context: ' . json_encode($context);
         }
-        
+
         return $formatted;
     }
 
@@ -146,20 +149,20 @@ class Logger
     {
         $log_dir = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'logs/';
         $log_file = $log_dir . 'plugin.log';
-        
+
         // Criar diretório se não existir
         if (!is_dir($log_dir)) {
             wp_mkdir_p($log_dir);
         }
-        
+
         // Verificar se consegue escrever
         if (!is_writable($log_dir) && !is_writable($log_file)) {
             return;
         }
-        
+
         // Adicionar quebra de linha
         $message .= "\n";
-        
+
         // Escrever no arquivo
         file_put_contents($log_file, $message, FILE_APPEND | LOCK_EX);
     }
@@ -171,13 +174,13 @@ class Logger
      */
     private static function isDebugEnabled()
     {
-        // Verificar se debug está habilitado no plugin
-        $plugin_debug = get_option('iw8_wa_debug', false);
-        
-        // Verificar se debug global está habilitado
-        $wp_debug = defined('WP_DEBUG') && WP_DEBUG;
-        
-        return $plugin_debug || $wp_debug;
+        // Debug do plugin deve ser independente do WP_DEBUG global.
+        // Isso evita que sites em modo debug inflem o error_log com logs informativos do Click Tracker.
+        $plugin_debug = (bool) get_option('iw8_wa_debug', false);
+
+        $constant_debug = defined('IW8_WA_CLICK_TRACKER_DEBUG') && IW8_WA_CLICK_TRACKER_DEBUG;
+
+        return $plugin_debug || $constant_debug;
     }
 
     /**
@@ -267,7 +270,7 @@ class Logger
             $fatal_message .= " | Context: " . json_encode($context);
         }
         error_log($fatal_message);
-        
+
         // Tentar log via sistema normal
         self::error("FATAL: {$message}", $context);
     }
@@ -331,14 +334,14 @@ class Logger
             // Testar escrita no arquivo de log
             $test_message = 'IW8_WA_CLICK_TRACKER LOG TEST: ' . microtime(true);
             self::info($test_message);
-            
+
             // Verificar se a mensagem foi escrita
             $log_file = self::getPluginLogFile();
             if ($log_file && file_exists($log_file)) {
                 $content = file_get_contents($log_file);
                 return strpos($content, $test_message) !== false;
             }
-            
+
             return false;
         } catch (\Exception $e) {
             return false;
@@ -367,7 +370,7 @@ class Logger
             'wp_debug' => defined('WP_DEBUG') ? WP_DEBUG : 'N/A',
             'wp_debug_log' => defined('WP_DEBUG_LOG') ? WP_DEBUG_LOG : 'N/A'
         ];
-        
+
         self::info('System diagnostics', $diagnostics);
     }
 
@@ -393,10 +396,10 @@ class Logger
         if (!$log_file) {
             return;
         }
-        
+
         $max_age = 7 * 24 * 60 * 60; // 7 dias em segundos
         $file_time = filemtime($log_file);
-        
+
         if ((time() - $file_time) > $max_age) {
             // Manter apenas as últimas 1000 linhas
             $lines = file($log_file);

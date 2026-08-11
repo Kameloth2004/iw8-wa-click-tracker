@@ -78,9 +78,7 @@ final class Updater
             // Auth opcional (repo privado / rate limit)
             self::maybeConfigureAuth(self::$checker);
 
-            if (function_exists('error_log')) {
-                error_log('IW8_WA Updater: Update checker inicializado com sucesso.');
-            }
+            \IW8\WaClickTracker\Core\Logger::debug('IW8_WA Updater: Update checker inicializado com sucesso.');
         } catch (\Throwable $e) {
             if (function_exists('error_log')) {
                 error_log('IW8_WA Updater ERROR: ' . $e->getMessage());
