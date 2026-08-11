@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Classe principal do plugin IW8 – Rastreador de Cliques WhatsApp
  *
@@ -80,19 +81,19 @@ class Plugin
     public function __construct()
     {
         $this->version = IW8_WA_CLICK_TRACKER_VERSION;
-        
+
         // Inicializar componentes de banco de dados
         $this->table_clicks = new \IW8\WaClickTracker\Database\TableClicks();
         $this->versions = new \IW8\WaClickTracker\Core\Versions();
-        
+
         // Inicializar componentes de frontend e AJAX
         $this->tracker = new \IW8\WaClickTracker\Frontend\Tracker();
         $this->assets = new \IW8\WaClickTracker\Core\Assets();
         $this->click_controller = new \IW8\WaClickTracker\Ajax\ClickController();
-        
+
         // Inicializar componente de menu admin
         $this->admin_menu = new \IW8\WaClickTracker\Admin\Menu();
-        
+
         // Inicializar componente de updater
         $this->updater = new \IW8\WaClickTracker\Core\Updater();
     }
@@ -122,33 +123,31 @@ class Plugin
 
         // Hook para verificar e garantir tabela (executa em admin_init para ser seguro)
         add_action('admin_init', [$this, 'ensure_database']);
-        
+
         // Hook para verificar upgrades de versão (executa em init para ser idempotente)
         add_action('init', [$this, 'check_upgrades']);
-        
+
         // Hook para enfileirar tracker JavaScript no frontend
         add_action('wp_enqueue_scripts', [$this->tracker, 'maybe_enqueue_tracker_js']);
-        
+
         // Hooks AJAX para cliques
         add_action('wp_ajax_iw8_wa_click', [$this->click_controller, 'handle_click']);
         add_action('wp_ajax_nopriv_iw8_wa_click', [$this->click_controller, 'handle_click']);
-        
-        // DEBUG: Log para verificar se hooks AJAX foram registrados
-        if (function_exists('error_log')) {
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: Hooks AJAX registrados');
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: wp_ajax_iw8_wa_click registrado');
-            error_log('IW8_WA_CLICK_TRACKER DEBUG: wp_ajax_nopriv_iw8_wa_click registrado');
-        }
-        
+
+        // DEBUG opcional: logar hooks AJAX apenas quando o debug do plugin estiver ativo.
+        \IW8\WaClickTracker\Core\Logger::debug('Hooks AJAX registrados');
+        \IW8\WaClickTracker\Core\Logger::debug('wp_ajax_iw8_wa_click registrado');
+        \IW8\WaClickTracker\Core\Logger::debug('wp_ajax_nopriv_iw8_wa_click registrado');
+
         // Hook para registrar menu administrativo
         add_action('admin_menu', [$this->admin_menu, 'register']);
-        
+
         // Hook para notices administrativos
         add_action('admin_notices', [$this, 'render_admin_notices']);
-        
+
         // Hook para processar export CSV
         add_action('admin_init', [$this, 'process_csv_export']);
-        
+
         // Hook para inicializar updater
         add_action('init', [$this->updater, 'init']);
     }
@@ -163,7 +162,7 @@ class Plugin
         try {
             // Garantir que a tabela existe
             $this->table_clicks->ensure_table();
-            \IW8\WaClickTracker\Core\Logger::database('Tabela verificada/garantida com sucesso');
+            \IW8\WaClickTracker\Core\Logger::debug('DATABASE: Tabela verificada/garantida com sucesso');
         } catch (\Exception $e) {
             \IW8\WaClickTracker\Core\Logger::databaseError($e->getMessage(), [
                 'file' => $e->getFile(),
@@ -208,7 +207,7 @@ class Plugin
 
         // Verificar se telefone está configurado
         if (!\IW8\WaClickTracker\Utils\Helpers::isPhoneConfigured()) {
-            ?>
+?>
             <div class="notice notice-warning">
                 <p>
                     <strong><?php _e('IW8 – Rastreador de Cliques WhatsApp:', 'iw8-wa-click-tracker'); ?></strong>
@@ -218,7 +217,7 @@ class Plugin
                     </a>.
                 </p>
             </div>
-            <?php
+<?php
         }
     }
 
@@ -310,8 +309,10 @@ class Plugin
     public function process_csv_export()
     {
         // Verificar se é uma requisição de export CSV
-        if (!isset($_GET['page']) || $_GET['page'] !== 'iw8-wa-clicks' || 
-            !isset($_GET['export']) || $_GET['export'] !== 'csv') {
+        if (
+            !isset($_GET['page']) || $_GET['page'] !== 'iw8-wa-clicks' ||
+            !isset($_GET['export']) || $_GET['export'] !== 'csv'
+        ) {
             return;
         }
 
@@ -344,7 +345,6 @@ class Plugin
 
             // Executar export
             $exporter->outputCsv($filters);
-
         } catch (\Exception $e) {
             // Log do erro
             if (function_exists('error_log')) {
