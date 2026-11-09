@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 // ARQUIVO NOVO: wp-content/plugins/iw8-wa-click-tracker/includes/Admin/Actions/TokenHandlers.php
 
 if (! defined('ABSPATH')) {
