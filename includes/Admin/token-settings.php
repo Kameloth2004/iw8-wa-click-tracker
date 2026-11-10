@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /* ARQUIVO: wp-content/plugins/iw8-wa-click-tracker/includes/admin/token-settings.php
  * IW8 Click Tracker — Página “API Token”
  *
