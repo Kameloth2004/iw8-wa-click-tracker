@@ -24,10 +24,12 @@ final class Updater
     private static $checker = null;
 
     /**
-     * Inicializa o Update Checker (idempotente).
-     * Dispare em admin_init:
-     *   add_action('admin_init', ['IW8\WaClickTracker\Core\Updater', 'init']);
-     */
+ * Inicializa o Update Checker de forma idempotente.
+ *
+ * Deve ser chamado durante plugins_loaded, para permitir que
+ * o WordPress, MainWP e demais ferramentas de gerenciamento
+ * identifiquem as atualizações do plugin.
+ */
     public static function init(): void
     {
         if (self::$booted) {

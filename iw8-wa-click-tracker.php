@@ -139,13 +139,25 @@ foreach (
     }
 }
 
-/** === Updater centralizado (evita múltiplas instâncias PUC) === */
+/**
+ * Inicialização centralizada do Plugin Update Checker.
+ *
+ * O updater deve ser registrado também em requisições não administrativas,
+ * permitindo que ferramentas externas, como o MainWP, detectem atualizações.
+ *
+ * A classe Updater possui proteção contra inicialização duplicada.
+ */
 $__updaterFile = IW8_WA_CLICK_TRACKER_PLUGIN_DIR . 'includes/Core/Updater.php';
+
 if (is_readable($__updaterFile)) {
     require_once $__updaterFile;
+
     if (class_exists('\IW8\WaClickTracker\Core\Updater')) {
-        // Apenas no admin inicializamos PUC; Updater::init é idempotente.
-        add_action('admin_init', array('IW8\WaClickTracker\Core\Updater', 'init'));
+        add_action(
+            'plugins_loaded',
+            array('IW8\WaClickTracker\Core\Updater', 'init'),
+            10
+        );
     }
 }
 
