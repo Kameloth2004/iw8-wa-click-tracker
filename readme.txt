@@ -4,7 +4,7 @@ Tags: whatsapp, tracking, analytics, clicks, reports, statistics, geo, automatio
 Requires at least: 6.0
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.4.8
+Stable tag: 1.4.9
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -115,6 +115,11 @@ Não. O envio ocorre de forma assíncrona via WP-Cron, sem afetar o carregamento
 * Estrutura inicial do plugin.
 * Classes base implementadas.
 * Sistema de autoload configurado.
+
+= 1.4.9 - 2026-11-10 =
+* Fixed: Inicialização do Plugin Update Checker no hook plugins_loaded.
+* Fixed: Compatibilidade da detecção de atualizações com ferramentas externas, incluindo MainWP.
+* Maintenance: Sem alterações na captura de cliques ou na estrutura do banco de dados.
 
 == Upgrade Notice ==
 
