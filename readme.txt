@@ -79,6 +79,11 @@ Não. O envio ocorre de forma assíncrona via WP-Cron, sem afetar o carregamento
 
 == Changelog ==
 
+= 1.4.9 - 2026-11-10 =
+* Fixed: Inicialização do Plugin Update Checker no hook plugins_loaded.
+* Fixed: Compatibilidade da detecção de atualizações com ferramentas externas, incluindo MainWP.
+* Maintenance: Sem alterações na captura de cliques ou na estrutura do banco de dados.
+
 = 1.4.5 - 2025-10-30 =
 ### Added
 * **Geolocalização**: novos campos `geo_city` e `geo_region` adicionados à tabela de metadados dos cliques (`*_iw8_wa_click_meta`).
@@ -115,11 +120,6 @@ Não. O envio ocorre de forma assíncrona via WP-Cron, sem afetar o carregamento
 * Estrutura inicial do plugin.
 * Classes base implementadas.
 * Sistema de autoload configurado.
-
-= 1.4.9 - 2026-11-10 =
-* Fixed: Inicialização do Plugin Update Checker no hook plugins_loaded.
-* Fixed: Compatibilidade da detecção de atualizações com ferramentas externas, incluindo MainWP.
-* Maintenance: Sem alterações na captura de cliques ou na estrutura do banco de dados.
 
 == Upgrade Notice ==
 
